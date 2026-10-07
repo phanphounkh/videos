@@ -1,0 +1,168 @@
+# =============================================================================
+# AI Video Studio - local stack
+#
+# Host ports are deliberately offset (5435/6381/9100/8010/5174) so this stack
+# never collides with other projects already running on this machine.
+# INSIDE the compose network, services reach each other by SERVICE NAME on the
+# container port: postgres:5432, redis:6379, s3:8333. Never localhost -
+# inside a container localhost means that container itself.
+# =============================================================================
+
+name: ai-video-studio
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: avs_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: ${POSTGRES_DB:-ai_video_studio}
+      # UTF-8 everywhere: Khmer text must survive the database round trip.
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=C"
+    ports:
+      - "${POSTGRES_HOST_PORT:-5435}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-ai_video_studio}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks: [avs]
+
+  redis:
+    image: redis:7-alpine
+    container_name: avs_redis
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes", "--maxmemory-policy", "noeviction"]
+    ports:
+      - "${REDIS_HOST_PORT:-6381}:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    networks: [avs]
+
+  # S3-compatible object storage.
+  #
+  # WHY SeaweedFS and not MinIO: MinIO's container images are no longer publicly
+  # pullable (both docker.io/minio/minio and quay.io now require auth). SeaweedFS
+  # speaks the same S3 API, so our boto3-based storage layer is unchanged and AWS
+  # S3 / R2 / MinIO can be swapped in later purely through S3_* env vars.
+  #
+  # Anonymous read is enabled in infra/seaweedfs/s3.json so the browser and the
+  # Remotion renderer can GET media straight from a URL.
+  s3:
+    image: chrislusf/seaweedfs:latest
+    container_name: avs_s3
+    restart: unless-stopped
+    command:
+      - server
+      - -dir=/data
+      - -s3
+      - -s3.port=8333
+      - -s3.config=/etc/seaweedfs/s3.json
+      - -master.volumeSizeLimitMB=1024
+      - -volume.max=0
+      # -ip is the address SeaweedFS ADVERTISES to peers (must be the service
+      # name so other containers can reach it); -ip.bind is what it LISTENS on.
+      # Without the 0.0.0.0 bind it refuses connections to localhost, which is
+      # exactly what the healthcheck uses.
+      - -ip=s3
+      - -ip.bind=0.0.0.0
+    ports:
+      - "${S3_HOST_PORT:-9100}:8333"      # S3 API
+      - "${S3_CONSOLE_HOST_PORT:-9101}:8888"  # filer web UI
+    volumes:
+      - s3_data:/data
+      - ./infra/seaweedfs/s3.json:/etc/seaweedfs/s3.json:ro
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:8333 || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 15s
+    networks: [avs]
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: avs_backend
+    restart: unless-stopped
+    env_file: [.env]
+    environment:
+      # Override the host-oriented values from .env with in-network addresses.
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-ai_video_studio}
+      REDIS_URL: redis://redis:6379/0
+      S3_ENDPOINT_URL: http://s3:8333
+    ports:
+      - "${BACKEND_HOST_PORT:-8010}:8000"
+    depends_on:
+      postgres: {condition: service_healthy}
+      redis: {condition: service_healthy}
+      s3: {condition: service_healthy}
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/api/health', timeout=3).status==200 else 1)"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    networks: [avs]
+
+  # Background worker: AI generation jobs + video rendering.
+  # It bundles Python (ARQ tasks) AND Node/Remotion/FFmpeg, because a render job
+  # is a Python task that shells out to the Remotion CLI.
+  renderer-worker:
+    build:
+      context: .
+      dockerfile: infra/worker.Dockerfile
+    container_name: avs_worker
+    restart: unless-stopped
+    env_file: [.env]
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-ai_video_studio}
+      REDIS_URL: redis://redis:6379/0
+      S3_ENDPOINT_URL: http://s3:8333
+      RENDERER_DIR: /renderer
+    depends_on:
+      postgres: {condition: service_healthy}
+      redis: {condition: service_healthy}
+      s3: {condition: service_healthy}
+    # Chromium (used by Remotion) needs more than the default 64MB of shared memory.
+    shm_size: "1gb"
+    networks: [avs]
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        # Baked at build time; the SSR server proxies /api to the backend.
+        BACKEND_URL: http://backend:8000
+    container_name: avs_frontend
+    restart: unless-stopped
+    environment:
+      BACKEND_URL: http://backend:8000
+      PORT: "3000"
+      HOST: 0.0.0.0
+    ports:
+      - "${FRONTEND_HOST_PORT:-5174}:3000"
+    depends_on:
+      backend: {condition: service_started}
+    networks: [avs]
+
+volumes:
+  postgres_data:
+  redis_data:
+  s3_data:
+
+networks:
+  avs:
+    name: ai_video_studio_net
+    driver: bridge

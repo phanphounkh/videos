@@ -1,0 +1,28 @@
+{
+  "name": "ai-video-studio-renderer",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Remotion composition + render CLI used by the backend worker",
+  "type": "module",
+  "scripts": {
+    "studio": "remotion studio src/index.ts",
+    "render:sample": "tsx src/render.ts samples/composition.json out/sample.mp4",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@remotion/bundler": "4.0.534",
+    "@remotion/cli": "4.0.534",
+    "@remotion/effects": "4.0.534",
+    "@remotion/renderer": "4.0.534",
+    "react": "19.2.0",
+    "react-dom": "19.2.0",
+    "remotion": "4.0.534",
+    "zod": "3.24.2"
+  },
+  "devDependencies": {
+    "@types/node": "22.13.1",
+    "@types/react": "19.2.2",
+    "tsx": "4.20.6",
+    "typescript": "5.7.3"
+  }
+}

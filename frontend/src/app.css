@@ -1,0 +1,26 @@
+@import 'tailwindcss';
+
+/* Khmer support is a product requirement, not an afterthought: Inter + Noto Sans
+   Khmer are preloaded in src/app.html (via <link>, not @import, so the browser
+   fetches them in parallel instead of blocking CSS), and Khmer is kept in the
+   global font stack so Khmer narration/captions never render as tofu boxes. */
+
+:root {
+  --font-ui: 'Inter', 'Noto Sans Khmer', system-ui, sans-serif;
+}
+
+html {
+  font-family: var(--font-ui);
+  color-scheme: dark;
+}
+
+body {
+  background-color: #0b0d12;
+  color: #e6e8ee;
+}
+
+.km,
+[lang='km'] {
+  font-family: 'Noto Sans Khmer', sans-serif;
+  line-height: 1.9;
+}

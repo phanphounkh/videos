@@ -1,0 +1,41 @@
+# --- secrets ---------------------------------------------------------------
+.env
+.env.*
+!.env.example
+
+# --- python ----------------------------------------------------------------
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+*.egg-info/
+
+# --- node ------------------------------------------------------------------
+node_modules/
+.svelte-kit/
+build/
+dist/
+.vite/
+npm-debug.log*
+
+# --- remotion / media output ----------------------------------------------
+renderer/out/
+renderer/.remotion/
+*.mp4
+*.mp3
+*.wav
+!renderer/samples/*
+
+# --- docker / local data ---------------------------------------------------
+.docker-data/
+postgres-data/
+minio-data/
+
+# --- editors / os ----------------------------------------------------------
+.idea/
+.vscode/
+.DS_Store
+*.swp

@@ -1,0 +1,38 @@
+# =============================================================================
+# Infrastructure only: postgres + redis + S3 (SeaweedFS).
+#
+# WHY this file exists: on a memory-constrained machine it is much cheaper to run
+# the stateful services in Docker while running the backend and worker on the
+# host with `uv run` - instant reload, a native debugger, no image rebuilds.
+#
+#   docker compose -f docker-compose.infra.yml up -d
+#
+# It reuses the service definitions from docker-compose.yml via `extends`, so the
+# two files can never drift apart.
+# =============================================================================
+
+name: ai-video-studio
+
+services:
+  postgres:
+    extends:
+      file: docker-compose.yml
+      service: postgres
+  redis:
+    extends:
+      file: docker-compose.yml
+      service: redis
+  s3:
+    extends:
+      file: docker-compose.yml
+      service: s3
+
+volumes:
+  postgres_data:
+  redis_data:
+  s3_data:
+
+networks:
+  avs:
+    name: ai_video_studio_net
+    driver: bridge

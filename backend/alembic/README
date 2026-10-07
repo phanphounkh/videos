@@ -1,0 +1,13 @@
+Alembic migration environment (async SQLAlchemy 2.x).
+
+Create a migration after changing models:
+    uv run alembic revision --autogenerate -m "add x to y"
+
+Apply:
+    uv run alembic upgrade head
+
+Roll back one step:
+    uv run alembic downgrade -1
+
+Always read the generated file before applying it. Autogenerate does not detect
+everything (table/column renames look like drop+create, which destroys data).
