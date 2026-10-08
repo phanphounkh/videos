@@ -129,6 +129,9 @@ services:
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-ai_video_studio}
       REDIS_URL: redis://redis:6379/0
       S3_ENDPOINT_URL: http://s3:8333
+      # Media URLs written into the render payload. Headless Chromium runs in
+      # THIS container, so they must be in-network, not localhost.
+      S3_RENDERER_BASE_URL: http://s3:8333
       RENDERER_DIR: /renderer
     depends_on:
       postgres: {condition: service_healthy}

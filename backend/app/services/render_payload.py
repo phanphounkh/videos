@@ -12,7 +12,7 @@ from typing import Any
 
 from app.core.logging import get_logger
 from app.models.project import Project
-from app.services.storage.urls import public_url
+from app.services.storage.urls import renderer_url
 
 log = get_logger(__name__)
 
@@ -22,10 +22,12 @@ def build_composition_payload(project: Project) -> dict[str, Any]:
     scenes: list[dict[str, Any]] = []
 
     for scene in sorted(project.scenes, key=lambda s: s.scene_number):
-        visual_url = public_url(scene.image_asset.storage_key) if scene.image_asset else None
+        # renderer_url, NOT public_url: headless Chromium fetches these from
+        # inside the worker container.
+        visual_url = renderer_url(scene.image_asset.storage_key) if scene.image_asset else None
         # A video asset takes precedence over a still image when present.
         if scene.video_asset is not None:
-            visual_url = public_url(scene.video_asset.storage_key)
+            visual_url = renderer_url(scene.video_asset.storage_key)
 
         scenes.append(
             {
@@ -33,7 +35,7 @@ def build_composition_payload(project: Project) -> dict[str, Any]:
                 "duration": float(scene.duration),
                 "visualUrl": visual_url,
                 "audioUrl": (
-                    public_url(scene.audio_asset.storage_key) if scene.audio_asset else None
+                    renderer_url(scene.audio_asset.storage_key) if scene.audio_asset else None
                 ),
                 "onScreenText": scene.on_screen_text,
                 "captions": [

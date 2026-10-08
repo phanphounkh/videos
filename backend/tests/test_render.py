@@ -120,3 +120,5 @@ async def test_composition_payload_shape(session, auth_client: AsyncClient, proj
     assert first["onScreenText"] == "Title"
     assert first["visualUrl"] is None  # no image generated in this test
     assert first["captions"][0]["start"] == 0.0
+    # Captions are derived from narration as soon as the scene exists.
+    assert first["captions"][0]["text"]

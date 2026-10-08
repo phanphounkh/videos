@@ -57,7 +57,12 @@ class Settings(BaseSettings):
     s3_secret_key: str = "minioadmin"
     s3_bucket: str = "ai-video-studio"
     s3_region: str = "us-east-1"
-    s3_public_base_url: str = "http://localhost:9000"
+    # URL the BROWSER uses to fetch media. Must be reachable from the user's machine.
+    s3_public_base_url: str = "http://localhost:9100"
+    # URL the RENDERER process uses. Inside Docker the worker cannot reach
+    # `localhost:9100` (that is the worker container itself), so it needs the
+    # in-network endpoint. Empty means "same as s3_endpoint_url".
+    s3_renderer_base_url: str = ""
 
     # --- AI providers (wired in later phases; empty means "use the mock") ----
     openrouter_api_key: str = ""
@@ -89,6 +94,11 @@ class Settings(BaseSettings):
     @property
     def is_production(self) -> bool:
         return self.environment == "production"
+
+    @property
+    def renderer_media_base_url(self) -> str:
+        """Base URL for media URLs placed in the render payload."""
+        return (self.s3_renderer_base_url or self.s3_endpoint_url).rstrip("/")
 
 
 @lru_cache
