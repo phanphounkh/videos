@@ -303,7 +303,10 @@ Essentials:
 | `S3_PUBLIC_BASE_URL` | base URL the **browser and renderer** use (`http://localhost:9100`) |
 | `LLM_PROVIDER` | `mock` or `openrouter` |
 | `OPENROUTER_API_KEY` / `OPENROUTER_MODEL` | real script generation |
-| `IMAGE_PROVIDER` / `TTS_PROVIDER` | `mock` today |
+| `TTS_PROVIDER` | `edge` = real speech (no key, has Khmer) or `mock` = silence |
+| `TTS_RATE` / `TTS_VOLUME` | narration prosody, e.g. `-10%` to slow it down |
+| `IMAGE_PROVIDER` | `mock` today |
+| `REMOTION_CONCURRENCY` | Chromium tabs per render; `1` on a low-memory host |
 | `RENDERER_DIR` | path to the Remotion project (`../renderer` on the host, `/renderer` in the worker image) |
 
 Mixing up the two S3 URLs is the classic "works in the API, broken in the
@@ -378,6 +381,10 @@ returning it from `get_tts_provider("km")`. Nothing else changes.
 - Prompt → structured script → scene rows, with strict Pydantic validation of the
   model output and defensive JSON repair
 - Per-scene image and narration assets stored in S3 (database holds keys only)
+- **Real text-to-speech** (`TTS_PROVIDER=edge`): Microsoft Edge neural voices,
+  no API key, including Khmer (`km-KH-PisethNeural` / `km-KH-SreymomNeural`).
+  Audio duration is MEASURED with ffprobe and the scene length follows it, so
+  narration is never clipped at a scene boundary
 - Caption segmentation and timing, re-timed against real audio duration
 - Redis/ARQ background jobs with per-scene isolation (one failure does not kill a project)
 - Remotion + FFmpeg render pipeline with live progress, upload, and a downloadable MP4
@@ -391,9 +398,8 @@ returning it from `get_tts_provider("km")`. Nothing else changes.
   is implemented; set `LLM_PROVIDER=openrouter` + `OPENROUTER_API_KEY`.
 - `IMAGE_PROVIDER=mock` — draws a real PNG (gradient + prompt text + a
   "placeholder image" label) at the project's exact dimensions. Not an AI image.
-- `TTS_PROVIDER=mock` — produces a **silent** MP3 of the correct estimated
-  duration via FFmpeg. The pipeline, timing and muxing are real; **there is no
-  speech**. The API says so in `message`.
+- `TTS_PROVIDER=mock` — a silent MP3 of the correct duration, for offline work
+  and tests. The default is now `edge`, which produces real speech.
 
 **Not implemented (interfaces exist, deliberately empty)**
 - Speech-to-text / forced alignment for word-level caption timing
@@ -414,3 +420,6 @@ returning it from `get_tts_provider("km")`. Nothing else changes.
 | `pull access denied for minio/minio` | MinIO images are no longer public. This stack uses SeaweedFS instead; keep `docker-compose.yml` as is. |
 | Render job stuck in `queued` | The worker is not running: `cd backend && uv run arq app.workers.main.WorkerSettings`, or `docker compose up -d renderer-worker`. |
 | Worker OOM / Chromium crash | Rendering needs ~1–2 GB free. The worker is capped at `max_jobs = 1`; scale with more worker containers, not more concurrency. |
+| `Timeout exceeded rendering the component at frame N` | The host is swapping. Keep `REMOTION_CONCURRENCY=1` and raise `REMOTION_FRAME_TIMEOUT_MS`. |
+| Narration is silent even though `TTS_PROVIDER=edge` | A **host** `arq` worker is still running and competing for the same Redis queue with its own (stale) config. `pkill -f "arq app.workers"`, then check `docker logs avs_worker` shows the job. |
+| Narration gets cut off at a scene boundary | The audio duration was estimated instead of measured. `ffprobe` cannot read MP3 duration from a pipe — `app/services/media.py` must probe a temp file. |

@@ -242,14 +242,22 @@ class GenerationService:
         )
         scene.audio_asset_id = asset.id
 
-        # The scene must be at least as long as its narration, or the audio would
-        # be cut off mid-sentence in the render.
-        if result.duration > scene.duration:
-            scene.duration = round(result.duration, 2)
+        # The scene length must match the narration, or the render either cuts
+        # the voice off mid-sentence (scene too short) or holds a silent frame
+        # (scene too long). A small tail is kept so speech does not end exactly
+        # on the cut.
+        spoken = round(result.duration + 0.35, 2)
+        if abs(spoken - scene.duration) > 0.2:
+            scene.duration = spoken
 
         attempt.status = GenerationStatus.COMPLETED
         attempt.asset_id = asset.id
         attempt.duration = result.duration
+        # Record the voice that was ACTUALLY used, not the alias that was asked
+        # for ("female"), so the history says km-KH-SreymomNeural and a result
+        # can be reproduced later.
+        attempt.voice = result.voice
+        attempt.provider = result.provider
 
         # Re-time captions against the ACTUAL audio length.
         await self._write_captions(scene, scene.duration, replace=True)

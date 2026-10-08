@@ -133,6 +133,10 @@ services:
       # THIS container, so they must be in-network, not localhost.
       S3_RENDERER_BASE_URL: http://s3:8333
       RENDERER_DIR: /renderer
+      # One Chromium tab per render: each tab costs hundreds of MB, and on a
+      # memory-constrained host more tabs means swapping and per-frame timeouts.
+      REMOTION_CONCURRENCY: "1"
+      REMOTION_FRAME_TIMEOUT_MS: "120000"
     depends_on:
       postgres: {condition: service_healthy}
       redis: {condition: service_healthy}

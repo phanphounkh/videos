@@ -72,8 +72,10 @@ def database(test_database_url: str) -> AsyncIterator[str]:
         capture_output=True,
     )
 
-    # Point the application at the test database for the whole session.
+    # Point the application at the test database for the whole session, and
+    # force the silent TTS provider so no test can reach the network.
     os.environ["DATABASE_URL"] = test_database_url
+    os.environ["TTS_PROVIDER"] = "mock"
     get_settings.cache_clear()
 
     yield test_database_url

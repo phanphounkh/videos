@@ -70,8 +70,13 @@ class Settings(BaseSettings):
     openrouter_base_url: str = "https://openrouter.ai/api/v1"
     llm_provider: Literal["mock", "openrouter"] = "mock"
 
-    tts_provider: Literal["mock", "elevenlabs"] = "mock"
+    # edge = Microsoft Edge neural voices (real speech, no API key, has Khmer)
+    # mock = silent audio of the correct duration (offline / tests)
+    tts_provider: Literal["edge", "mock"] = "edge"
     tts_api_key: str = ""
+    # Edge TTS prosody, e.g. "-10%" to slow narration down for learners.
+    tts_rate: str = "+0%"
+    tts_volume: str = "+0%"
 
     image_provider: Literal["mock", "replicate"] = "mock"
     image_api_key: str = ""

@@ -212,12 +212,13 @@ async def test_voice_extends_a_too_short_scene_and_retimes_captions(
     assert (await auth_client.post(f"/api/scenes/{scene['id']}/generate-voice")).status_code == 200
 
     refreshed = (await auth_client.get(f"/api/scenes/{scene['id']}")).json()
-    # FakeTTS returns 6.25s of audio for a 5s scene: the scene must grow, or the
-    # narration would be cut off in the render.
-    assert refreshed["duration"] == 6.25
+    # FakeTTS returns 6.25s of audio for a 5s scene. The scene must track the
+    # narration (plus a small tail so speech does not end exactly on the cut),
+    # or the render either clips the voice or holds a silent frame.
+    assert refreshed["duration"] == pytest.approx(6.6, abs=0.01)
     assert refreshed["audio_url"]
-    # Captions were re-timed against the real audio length.
-    assert refreshed["captions"][-1]["end_time"] == 6.25
+    # Captions were re-timed against the new scene length.
+    assert refreshed["captions"][-1]["end_time"] == pytest.approx(6.6, abs=0.01)
 
 
 async def test_generation_requires_ownership(

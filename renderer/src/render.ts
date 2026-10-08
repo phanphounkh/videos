@@ -50,11 +50,25 @@ async function main(): Promise<void> {
       | 'angle-egl'
   };
 
+  // Resource limits, tunable from the environment.
+  //
+  // concurrency: Remotion's default opens one Chromium tab per CPU core. Each
+  // tab costs hundreds of MB, so on a memory-constrained host the machine
+  // starts swapping and frames then exceed the per-frame timeout. One tab is
+  // slower but survives; scale out with more worker containers instead.
+  //
+  // timeoutInMilliseconds: the per-frame budget. The default 30s is generous on
+  // an idle machine and too tight on a loaded one, where fetching a scene's
+  // image and audio can stall.
+  const concurrency = Number(process.env.REMOTION_CONCURRENCY ?? 1);
+  const frameTimeout = Number(process.env.REMOTION_FRAME_TIMEOUT_MS ?? 120_000);
+
   const composition = await selectComposition({
     serveUrl,
     id: 'VideoComposition',
     inputProps: payload,
-    chromiumOptions
+    chromiumOptions,
+    timeoutInMilliseconds: frameTimeout
   });
 
   fs.mkdirSync(path.dirname(path.resolve(outputPath)), { recursive: true });
@@ -69,8 +83,9 @@ async function main(): Promise<void> {
     audioCodec: 'aac',
     crf: 20,
     x264Preset: 'medium',
-    concurrency: null,
+    concurrency,
     chromiumOptions,
+    timeoutInMilliseconds: frameTimeout,
     onProgress: ({ progress }) => emit('rendering', 10 + Math.round(progress * 85))
   });
 
