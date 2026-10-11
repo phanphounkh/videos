@@ -16,20 +16,21 @@ from app.models.enums import AspectRatio, Transition, VideoStyle
 MAX_SCENES = 40
 MIN_SCENE_DURATION = 1.0
 MAX_SCENE_DURATION = 60.0
+MAX_VIDEO_DURATION = 300
 
 
 class GenerateRequest(BaseModel):
     """What the user sends from the prompt page."""
 
     prompt: str = Field(min_length=3, max_length=2000)
-    duration: int = Field(default=60, ge=10, le=600)
-    language: str = Field(default="en", max_length=16)
-    style: VideoStyle = VideoStyle.EDUCATIONAL
+    duration: int = Field(default=60, ge=10, le=MAX_VIDEO_DURATION)
+    language: str = Field(default="km", max_length=16)
+    style: VideoStyle = VideoStyle.SOCIAL_MEDIA
     aspect_ratio: AspectRatio | None = None
     tone: str | None = Field(default=None, max_length=64)
     audience: str | None = Field(default=None, max_length=128)
     voice: str | None = Field(default=None, max_length=64)
-    # Whether to immediately queue image + voice generation for every scene.
+    # Whether to immediately queue presenter voice generation for every scene.
     generate_media: bool = True
 
 

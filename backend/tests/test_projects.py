@@ -19,11 +19,24 @@ async def test_create_and_read_project(auth_client: AsyncClient) -> None:
     assert fetched.json()["title"] == "Khmer history"
 
 
+async def test_project_defaults_to_khmer(auth_client: AsyncClient) -> None:
+    response = await auth_client.post("/api/projects", json={"title": "New lesson"})
+    assert response.status_code == 201
+    assert response.json()["language"] == "km"
+
+
 async def test_patch_only_changes_provided_fields(auth_client: AsyncClient, project: dict) -> None:
     updated = await auth_client.patch(f"/api/projects/{project['id']}", json={"title": "Renamed"})
     assert updated.status_code == 200
     assert updated.json()["title"] == "Renamed"
     assert updated.json()["language"] == project["language"]
+
+
+async def test_project_duration_is_limited_to_five_minutes(auth_client: AsyncClient) -> None:
+    response = await auth_client.post(
+        "/api/projects", json={"title": "Too long", "target_duration": 301}
+    )
+    assert response.status_code == 422
 
 
 async def test_duplicate_copies_scenes(auth_client: AsyncClient, project: dict) -> None:

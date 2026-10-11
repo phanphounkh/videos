@@ -1,13 +1,14 @@
 """Placeholder image generator - MOCK, no AI involved.
 
-It draws a real PNG: a deterministic gradient derived from the prompt hash, plus
-the prompt text wrapped onto the image. Why bother drawing something real instead
-of returning a 1x1 pixel?
+It draws a real PNG: a deterministic gradient and educational diagram derived
+from the prompt hash. Why bother drawing something real instead of returning a
+1x1 pixel?
 
   - the renderer, the browser and FFmpeg all receive genuine image bytes of the
     correct dimensions, so nothing downstream is faked;
   - every scene looks different, which makes the editor and timeline readable;
-  - Khmer text is drawn with a Khmer font, which proves the font chain works.
+  - the neutral diagram works for every narration language without rendering
+    provider prompts or placeholder labels into the lesson.
 
 Replace it by setting IMAGE_PROVIDER to a real provider.
 """
@@ -15,7 +16,6 @@ Replace it by setting IMAGE_PROVIDER to a real provider.
 import asyncio
 import hashlib
 import io
-import textwrap
 from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFont
@@ -72,40 +72,46 @@ def _render_png(prompt: str, width: int, height: int) -> bytes:
             ),
         )
 
-    # Geometric accent so scenes are visually distinguishable at a glance.
+    # A deterministic educational diagram. It reads like lesson material when
+    # placed on the studio board instead of looking like a generic placeholder.
     digest = hashlib.sha256(prompt.encode("utf-8")).digest()
-    radius = int(min(width, height) * (0.18 + (digest[6] % 20) / 100))
-    cx = int(width * (0.2 + (digest[7] % 60) / 100))
-    cy = int(height * (0.2 + (digest[8] % 60) / 100))
-    draw.ellipse(
-        [cx - radius, cy - radius, cx + radius, cy + radius],
-        outline=(255, 255, 255, 40),
-        width=max(2, radius // 24),
-    )
+    grid = max(48, width // 20)
+    for x in range(0, width, grid):
+        draw.line([(x, 0), (x, height)], fill=(45, 58, 89), width=1)
+    for y in range(0, height, grid):
+        draw.line([(0, y), (width, y)], fill=(45, 58, 89), width=1)
 
-    # The prompt is drawn small and dim near the top: the renderer puts the
-    # scene title in the middle and captions at the bottom, so a big centred
-    # block of prompt text would collide with both.
-    is_khmer = any("\u1780" <= ch <= "\u17ff" for ch in prompt)
-    font = _load_font(max(14, width // 70), khmer=is_khmer)
-    wrapped = textwrap.fill(prompt[:160], width=60)
+    layers = [0.2, 0.5, 0.8]
+    nodes: list[tuple[int, int]] = []
+    for layer_index, x_ratio in enumerate(layers):
+        count = 3 if layer_index != 1 else 4
+        for index in range(count):
+            x = int(width * x_ratio)
+            y = int(height * (0.24 + index * (0.52 / max(count - 1, 1))))
+            nodes.append((x, y))
 
-    draw.multiline_text(
-        (width // 2, int(height * 0.12)),
-        wrapped,
-        font=font,
-        fill=(205, 208, 225),
-        anchor="ma",
-        align="center",
-        spacing=8,
+    first, middle, last = nodes[:3], nodes[3:7], nodes[7:]
+    for left_layer, right_layer in ((first, middle), (middle, last)):
+        for left in left_layer:
+            for right in right_layer:
+                if (left[1] + right[1] + digest[6]) % 3:
+                    draw.line([left, right], fill=(96, 165, 250), width=max(2, width // 500))
+
+    radius = max(10, min(width, height) // 42)
+    for index, (x, y) in enumerate(nodes):
+        color = (251, 191, 36) if index in {3, 5, 8} else (226, 232, 240)
+        draw.ellipse([x - radius, y - radius, x + radius, y + radius], fill=color,
+                     outline=(15, 23, 42), width=max(2, radius // 5))
+
+    badge_font = _load_font(max(14, width // 65))
+    draw.rounded_rectangle(
+        [int(width * 0.05), int(height * 0.06), int(width * 0.29), int(height * 0.13)],
+        radius=max(8, width // 100), fill=(15, 23, 42), outline=(245, 158, 11),
+        width=max(2, width // 600),
     )
-    label_font = _load_font(max(12, width // 90))
     draw.text(
-        (width // 2, height - max(18, height // 28)),
-        "placeholder image - no AI image provider configured",
-        font=label_font,
-        fill=(170, 172, 190),
-        anchor="mm",
+        (int(width * 0.17), int(height * 0.095)), "LESSON VISUAL", font=badge_font,
+        fill=(251, 191, 36), anchor="mm",
     )
 
     buffer = io.BytesIO()

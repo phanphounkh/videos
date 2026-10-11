@@ -54,11 +54,11 @@ async def generate_scene_media(
 async def generate_project_media(
     ctx: dict[str, Any], project_id: str, owner_id: str
 ) -> dict[str, Any]:
-    """Fan out media generation across every scene of a project, then mark it ready."""
+    """Generate presenter narration for every scene, then mark the project ready."""
     from app.services.generation_service import GenerationService
 
     factory = get_session_factory()
-    summary = {"project_id": project_id, "scenes": 0, "images": 0, "voices": 0, "failures": 0}
+    summary = {"project_id": project_id, "scenes": 0, "voices": 0, "failures": 0}
 
     async with factory() as session:
         project = await ProjectRepository(session).get_for_owner(
@@ -75,19 +75,6 @@ async def generate_project_media(
         async with factory() as session:
             service = GenerationService(session)
             summary["scenes"] += 1
-            try:
-                image_outcome = await service.generate_scene_image(
-                    uuid.UUID(scene_id), uuid.UUID(owner_id)
-                )
-                summary["images"] += int(image_outcome.asset is not None)
-                if image_outcome.asset is None:
-                    summary["failures"] += 1
-            except Exception as exc:  # noqa: BLE001 - one scene must not kill the batch
-                summary["failures"] += 1
-                log.warning("scene_image_job_failed", scene_id=scene_id, error=str(exc)[:200])
-
-        async with factory() as session:
-            service = GenerationService(session)
             try:
                 voice_outcome = await service.generate_scene_voice(
                     uuid.UUID(scene_id), uuid.UUID(owner_id)

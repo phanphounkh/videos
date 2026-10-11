@@ -37,11 +37,11 @@ class Project(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     )
     # Language lives on BOTH project and scene: the project default drives script
     # generation; per-scene overrides allow a bilingual video later.
-    language: Mapped[str] = mapped_column(String(16), default="en", nullable=False)
+    language: Mapped[str] = mapped_column(String(16), default="km", nullable=False)
     aspect_ratio: Mapped[str] = mapped_column(
-        String(16), default=AspectRatio.LANDSCAPE, nullable=False
+        String(16), default=AspectRatio.PORTRAIT, nullable=False
     )
-    style: Mapped[str] = mapped_column(String(32), default=VideoStyle.EDUCATIONAL, nullable=False)
+    style: Mapped[str] = mapped_column(String(32), default=VideoStyle.SOCIAL_MEDIA, nullable=False)
     tone: Mapped[str | None] = mapped_column(String(64), nullable=True)
     audience: Mapped[str | None] = mapped_column(String(128), nullable=True)
     voice: Mapped[str | None] = mapped_column(String(64), nullable=True)

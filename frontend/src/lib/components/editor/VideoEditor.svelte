@@ -28,9 +28,8 @@
     onduplicateScene,
     onaddScene,
     onreorder,
-    onregenerateImage,
     onregenerateVoice,
-    onupload,
+    onmakeKhmer,
     onrename,
     onstartRender
   }: {
@@ -46,9 +45,8 @@
     onduplicateScene: (id: string) => void;
     onaddScene: () => void;
     onreorder: (ids: string[]) => void;
-    onregenerateImage: (id: string) => void;
     onregenerateVoice: (id: string) => void;
-    onupload: (id: string, file: File) => void;
+    onmakeKhmer: () => void;
     onrename: (title: string) => void;
     onstartRender: () => void;
   } = $props();
@@ -100,6 +98,11 @@
       {project.width}×{project.height} · {project.fps}fps · {project.duration.toFixed(1)}s
     </span>
 
+    {#if !project.language.startsWith('km')}
+      <Button variant="secondary" onclick={onmakeKhmer} loading={saving}>
+        Regenerate in Khmer
+      </Button>
+    {/if}
     <Button onclick={() => (exportOpen = true)}>Export</Button>
   </header>
 
@@ -118,6 +121,7 @@
     <div class="flex min-w-0 flex-1 flex-col gap-4">
       <VideoPreview
         {scenes}
+        projectTitle={project.title}
         aspectRatio={project.aspect_ratio}
         language={project.language}
         bind:time
@@ -131,9 +135,7 @@
       onsave={onsaveScene}
       ondelete={ondeleteScene}
       onduplicate={onduplicateScene}
-      {onregenerateImage}
       {onregenerateVoice}
-      {onupload}
     />
   </div>
 

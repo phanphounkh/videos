@@ -26,7 +26,7 @@
 <main class="mx-auto flex min-h-screen max-w-sm flex-col justify-center gap-6 px-6">
   <div>
     <h1 class="text-2xl font-bold">Log in</h1>
-    <p class="text-sm text-slate-400">AI Video Studio</p>
+    <p class="text-sm text-slate-400">Khmer Story Studio</p>
   </div>
 
   <form class="flex flex-col gap-4" onsubmit={submit}>

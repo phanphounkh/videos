@@ -12,13 +12,13 @@ from app.schemas.common import ORMModel
 class ProjectCreateRequest(BaseModel):
     title: str = Field(min_length=1, max_length=300)
     description: str | None = Field(default=None, max_length=5000)
-    language: str = Field(default="en", max_length=16)
-    aspect_ratio: AspectRatio = AspectRatio.LANDSCAPE
-    style: VideoStyle = VideoStyle.EDUCATIONAL
+    language: str = Field(default="km", max_length=16)
+    aspect_ratio: AspectRatio = AspectRatio.PORTRAIT
+    style: VideoStyle = VideoStyle.SOCIAL_MEDIA
     tone: str | None = Field(default=None, max_length=64)
     audience: str | None = Field(default=None, max_length=128)
     voice: str | None = Field(default=None, max_length=64)
-    target_duration: int = Field(default=60, ge=5, le=600)
+    target_duration: int = Field(default=60, ge=5, le=300)
     fps: int = Field(default=30, ge=15, le=60)
 
 
@@ -33,7 +33,7 @@ class ProjectUpdateRequest(BaseModel):
     tone: str | None = Field(default=None, max_length=64)
     audience: str | None = Field(default=None, max_length=128)
     voice: str | None = Field(default=None, max_length=64)
-    target_duration: int | None = Field(default=None, ge=5, le=600)
+    target_duration: int | None = Field(default=None, ge=5, le=300)
     fps: int | None = Field(default=None, ge=15, le=60)
 
 

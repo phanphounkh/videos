@@ -3,7 +3,7 @@
 Timing model, which is the whole point of this module:
 
   POST /projects/{id}/generate      script generation runs INLINE (seconds), then
-                                    image + voice jobs are QUEUED (minutes).
+                                    presenter voice jobs are QUEUED (minutes).
   POST /scenes/{id}/generate-image  runs inline - a single image is fast and the
   POST /scenes/{id}/generate-voice   editor wants the result immediately.
   POST /scenes/{id}/regenerate      both of the above for one scene.
@@ -28,7 +28,7 @@ scenes_router = APIRouter(prefix="/scenes", tags=["generation"])
     "/{project_id}/generate",
     response_model=GenerateResponse,
     status_code=status.HTTP_202_ACCEPTED,
-    summary="Prompt -> structured script -> scenes (and queue media generation)",
+    summary="Prompt -> structured script -> scenes (and queue presenter narration)",
 )
 async def generate_video(
     project_id: uuid.UUID,

@@ -33,7 +33,12 @@ export const VideoComposition: React.FC<CompositionPayload> = ({ project, scenes
         cursor += frames;
         return (
           <Sequence key={scene.id} from={from} durationInFrames={frames}>
-            <SceneView scene={scene} language={project.language} />
+            <SceneView
+              scene={scene}
+              language={project.language}
+              projectTitle={project.title}
+              sceneCount={scenes.length}
+            />
           </Sequence>
         );
       })}

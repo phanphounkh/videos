@@ -12,6 +12,7 @@ from app.schemas.generation import GeneratedScript
 from app.services.ai.base import ScriptRequest
 from app.services.ai.llm.mock import MockLLMProvider
 from app.services.ai.llm.parsing import extract_json_object, parse_script
+from app.services.ai.speech.timing import estimate_duration
 
 VALID = """
 {
@@ -103,6 +104,17 @@ async def test_mock_provider_returns_a_valid_script() -> None:
     assert all(scene.visual_prompt.isascii() for scene in script.scenes)
 
 
+async def test_mock_provider_paces_a_five_minute_lesson() -> None:
+    script = await MockLLMProvider().generate_script(
+        ScriptRequest(prompt="Explain neural networks", duration=300, language="en",
+                      style="educational")
+    )
+    assert abs(script.total_duration - 300) < 1
+    for scene in script.scenes:
+        spoken_duration = estimate_duration(scene.narration, language="en")
+        assert spoken_duration >= scene.duration - 1
+
+
 async def test_mock_provider_produces_khmer_for_km() -> None:
     script = await MockLLMProvider().generate_script(
         ScriptRequest(prompt="ប្រវត្តិសាស្ត្រអង្គរវត្ត", duration=30, language="km",
@@ -110,3 +122,12 @@ async def test_mock_provider_produces_khmer_for_km() -> None:
     )
     assert any("\u1780" <= ch <= "\u17ff" for ch in script.scenes[0].narration)
     assert script.scenes[0].visual_prompt.isascii()
+
+
+async def test_mock_provider_does_not_speak_english_topic_with_khmer_voice() -> None:
+    script = await MockLLMProvider().generate_script(
+        ScriptRequest(prompt="Explain Khmer New Year", duration=30, language="km",
+                      style="educational")
+    )
+    narration = " ".join(scene.narration for scene in script.scenes)
+    assert not any(character.isascii() and character.isalpha() for character in narration)

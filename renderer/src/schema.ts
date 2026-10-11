@@ -18,12 +18,16 @@ export const captionSchema = z.object({
 
 export const sceneSchema = z.object({
   id: z.string(),
+  sceneNumber: z.number().int().positive(),
   /** Seconds. The renderer converts to frames using project.fps. */
   duration: z.number().positive(),
   /** Absolute URL (MinIO/S3 presigned) or null to fall back to a solid colour. */
   visualUrl: z.string().nullable().default(null),
+  /** Determines whether Remotion decodes visualUrl as a still image or video. */
+  visualType: z.enum(['image', 'video']).nullable().default(null),
   audioUrl: z.string().nullable().default(null),
   onScreenText: z.string().nullable().default(null),
+  narration: z.string().default(''),
   captions: z.array(captionSchema).default([]),
   transition: z.enum(['none', 'fade', 'slide']).default('fade'),
   backgroundColor: z.string().default('#0b0d12')
@@ -41,7 +45,10 @@ export const projectSchema = z.object({
 export const compositionSchema = z.object({
   project: projectSchema,
   scenes: z.array(sceneSchema).min(1)
-});
+}).refine(
+  (payload) => payload.scenes.reduce((total, scene) => total + scene.duration, 0) <= 300,
+  { message: 'Videos can be at most 5 minutes long.', path: ['scenes'] }
+);
 
 export type Caption = z.infer<typeof captionSchema>;
 export type Scene = z.infer<typeof sceneSchema>;
@@ -49,14 +56,17 @@ export type Project = z.infer<typeof projectSchema>;
 export type CompositionPayload = z.infer<typeof compositionSchema>;
 
 export const emptyComposition: CompositionPayload = {
-  project: { width: 1920, height: 1080, fps: 30, title: 'Untitled', language: 'en' },
+  project: { width: 1920, height: 1080, fps: 30, title: 'មេរៀនថ្មី', language: 'km' },
   scenes: [
     {
       id: 'placeholder',
+      sceneNumber: 1,
       duration: 3,
       visualUrl: null,
+      visualType: null,
       audioUrl: null,
-      onScreenText: 'AI Video Studio',
+      onScreenText: 'ចំណុចសំខាន់',
+      narration: 'មេរៀនច្បាស់លាស់ ដែលពន្យល់ម្តងមួយគំនិត។',
       captions: [],
       transition: 'fade',
       backgroundColor: '#0b0d12'

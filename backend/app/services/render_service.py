@@ -63,6 +63,12 @@ class RenderService:
         if any(scene.duration <= 0 for scene in project.scenes):
             raise ConflictError("Every scene must have a positive duration.",
                                 code="INVALID_TIMELINE")
+        if project.duration > 300:
+            raise ConflictError(
+                "Videos can be at most 5 minutes long. Shorten or remove scenes before export.",
+                code="VIDEO_TOO_LONG",
+                details={"duration": project.duration, "maximum": 300},
+            )
 
         job = RenderJob(project_id=project.id, status=RenderStatus.QUEUED, progress=0)
         self.session.add(job)
@@ -71,7 +77,21 @@ class RenderService:
 
         from app.services.queue import enqueue
 
-        await enqueue("render_project", str(job.id))
+        try:
+            await enqueue("render_project", str(job.id))
+        except Exception as exc:  # noqa: BLE001 - Redis clients expose several error types
+            # The job row is committed before enqueueing so the worker can never
+            # win a race and look up an uncommitted id. Compensate explicitly if
+            # Redis is unavailable, otherwise the project would remain stuck in
+            # "rendering" with a queued job that no worker can see.
+            message = "The render queue is unavailable. Please retry."
+            job.status = RenderStatus.FAILED
+            job.error_message = message
+            job.completed_at = datetime.now(UTC)
+            project.status = ProjectStatus.READY
+            await self.session.commit()
+            log.warning("render_enqueue_failed", job_id=str(job.id), error=str(exc)[:300])
+            raise ProviderError(message, code="QUEUE_UNAVAILABLE") from exc
         log.info("render_queued", job_id=str(job.id), project_id=str(project_id))
         return job
 

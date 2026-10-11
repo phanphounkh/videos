@@ -10,23 +10,18 @@
     onsave,
     ondelete,
     onduplicate,
-    onregenerateImage,
-    onregenerateVoice,
-    onupload
+    onregenerateVoice
   }: {
     scene: Scene | null;
     busy?: boolean;
     onsave: (id: string, patch: Partial<Scene>) => void;
     ondelete: (id: string) => void;
     onduplicate: (id: string) => void;
-    onregenerateImage: (id: string) => void;
     onregenerateVoice: (id: string) => void;
-    onupload: (id: string, file: File) => void;
   } = $props();
 
   // Local draft so typing does not fire a request per keystroke.
   let narration = $state('');
-  let visualPrompt = $state('');
   let onScreenText = $state('');
   let duration = $state(5);
   let transition = $state('fade');
@@ -37,7 +32,6 @@
     if (scene && scene.id !== loadedId) {
       loadedId = scene.id;
       narration = scene.narration;
-      visualPrompt = scene.visual_prompt ?? '';
       onScreenText = scene.on_screen_text ?? '';
       duration = scene.duration;
       transition = scene.transition;
@@ -51,7 +45,6 @@
     if (!scene) return;
     onsave(scene.id, {
       narration,
-      visual_prompt: visualPrompt || null,
       on_screen_text: onScreenText || null,
       duration: Number(duration),
       transition,
@@ -59,10 +52,6 @@
     });
   }
 
-  function pick(event: Event) {
-    const file = (event.target as HTMLInputElement).files?.[0];
-    if (file && scene) onupload(scene.id, file);
-  }
 </script>
 
 <aside class="flex w-full flex-col gap-4 lg:w-80">
@@ -84,12 +73,8 @@
       ></textarea>
     </Field>
 
-    <Field label="On-screen text">
+    <Field label="Important point" hint="Pops up briefly while this scene is spoken.">
       <input bind:value={onScreenText} class={input} maxlength="500" />
-    </Field>
-
-    <Field label="Visual prompt" hint="English description used to generate the image.">
-      <textarea bind:value={visualPrompt} rows="3" class="{input} resize-y"></textarea>
     </Field>
 
     <div class="grid grid-cols-2 gap-3">
@@ -111,22 +96,10 @@
 
     <div class="flex flex-wrap gap-2">
       <Button onclick={save} loading={busy}>Save</Button>
-      <Button variant="secondary" onclick={() => onregenerateImage(scene.id)} loading={busy}>
-        Regenerate image
-      </Button>
       <Button variant="secondary" onclick={() => onregenerateVoice(scene.id)} loading={busy}>
         Regenerate voice
       </Button>
     </div>
-
-    <Field label="Upload your own media" hint="Image, video or audio. Replaces the generated one.">
-      <input
-        type="file"
-        accept="image/png,image/jpeg,image/webp,video/mp4,video/webm,audio/mpeg,audio/wav"
-        onchange={pick}
-        class="text-xs text-slate-400"
-      />
-    </Field>
 
     {#if scene.audio_url}
       <div class="flex flex-col gap-1">

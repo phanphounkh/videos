@@ -100,12 +100,42 @@ class FakeTTS(ai_base.TTSProvider):
 async def fakes(monkeypatch: pytest.MonkeyPatch) -> AsyncIterator[FakeStorage]:
     storage = FakeStorage()
     import app.services.generation_service as gen
+    import app.services.project_service as projects
 
     monkeypatch.setattr(gen, "get_storage", lambda: storage)
+    monkeypatch.setattr(projects, "get_storage", lambda: storage)
     monkeypatch.setattr(gen, "get_llm_provider", lambda: FakeLLM())
     monkeypatch.setattr(gen, "get_image_provider", lambda: FakeImages())
     monkeypatch.setattr(gen, "get_tts_provider", lambda language="en": FakeTTS())
     yield storage
+
+
+async def test_duplicate_keeps_independent_media_after_source_is_deleted(
+    auth_client: AsyncClient, project: dict, fakes: FakeStorage
+) -> None:
+    await auth_client.post(
+        f"/api/projects/{project['id']}/generate",
+        json={"prompt": "explain testing", "duration": 10, "language": "en",
+              "style": "educational", "generate_media": False},
+    )
+    source_scene = (await auth_client.get(f"/api/projects/{project['id']}/scenes")).json()[0]
+    await auth_client.post(f"/api/scenes/{source_scene['id']}/generate-image")
+    await auth_client.post(f"/api/scenes/{source_scene['id']}/generate-voice")
+    source_scene = (await auth_client.get(f"/api/scenes/{source_scene['id']}")).json()
+
+    duplicate = (await auth_client.post(f"/api/projects/{project['id']}/duplicate")).json()
+    copied_scene = (
+        await auth_client.get(f"/api/projects/{duplicate['id']}/scenes")
+    ).json()[0]
+    assert copied_scene["image_url"] and copied_scene["audio_url"]
+    assert copied_scene["image_url"] != source_scene["image_url"]
+    assert copied_scene["audio_url"] != source_scene["audio_url"]
+
+    assert (await auth_client.delete(f"/api/projects/{project['id']}")).status_code == 204
+    surviving = (
+        await auth_client.get(f"/api/projects/{duplicate['id']}/scenes")
+    ).json()[0]
+    assert surviving["image_url"] and surviving["audio_url"]
 
 
 async def test_generate_creates_scenes_and_captions(
@@ -125,6 +155,24 @@ async def test_generate_creates_scenes_and_captions(
     # Captions are derived from narration immediately, before any audio exists.
     assert scenes[0]["captions"]
     assert scenes[0]["captions"][0]["start_time"] == 0.0
+
+
+async def test_generation_duration_is_limited_to_five_minutes(
+    auth_client: AsyncClient, project: dict
+) -> None:
+    response = await auth_client.post(
+        f"/api/projects/{project['id']}/generate",
+        json={"prompt": "A very long lesson", "duration": 301, "language": "en",
+              "style": "educational", "generate_media": False},
+    )
+    assert response.status_code == 422
+
+
+def test_generation_defaults_to_khmer() -> None:
+    from app.schemas.generation import GenerateRequest
+
+    payload = GenerateRequest(prompt="មេរៀនអំពីបញ្ញាសិប្បនិម្មិត")
+    assert payload.language == "km"
 
 
 async def test_generate_replaces_a_previous_script(
@@ -157,6 +205,26 @@ async def test_llm_failure_marks_the_project_failed(
     project_after = (await auth_client.get(f"/api/projects/{project['id']}")).json()
     assert project_after["status"] == "failed"
     assert project_after["error_message"]
+
+
+async def test_missing_llm_configuration_marks_project_failed(
+    auth_client: AsyncClient, project: dict, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import app.services.generation_service as gen
+
+    def missing_provider() -> FakeLLM:
+        raise ProviderError("OPENROUTER_API_KEY is not set", code="PROVIDER_NOT_CONFIGURED")
+
+    monkeypatch.setattr(gen, "get_llm_provider", missing_provider)
+    response = await auth_client.post(
+        f"/api/projects/{project['id']}/generate",
+        json={"prompt": "រឿងកំប្លែង", "duration": 30, "language": "km",
+              "style": "social_media", "generate_media": False},
+    )
+    assert response.status_code == 502
+    assert response.json()["error"]["code"] == "PROVIDER_NOT_CONFIGURED"
+    project_after = (await auth_client.get(f"/api/projects/{project['id']}")).json()
+    assert project_after["status"] == "failed"
 
 
 async def test_scene_image_is_stored_and_attached(

@@ -301,8 +301,8 @@ Essentials:
 | `JWT_SECRET` | signing key — **must** be changed outside development |
 | `S3_ENDPOINT_URL` | endpoint the **backend** uses (`http://s3:8333` in Docker) |
 | `S3_PUBLIC_BASE_URL` | base URL the **browser and renderer** use (`http://localhost:9100`) |
-| `LLM_PROVIDER` | `mock` or `openrouter` |
-| `OPENROUTER_API_KEY` / `OPENROUTER_MODEL` | real script generation |
+| `LLM_PROVIDER` | `openrouter` for prompt-following stories; `mock` only for offline tests |
+| `OPENROUTER_API_KEY` / `OPENROUTER_MODEL` | OpenRouter story generation (key required) |
 | `TTS_PROVIDER` | `edge` = real speech (no key, has Khmer) or `mock` = silence |
 | `TTS_RATE` / `TTS_VOLUME` | narration prosody, e.g. `-10%` to slow it down |
 | `IMAGE_PROVIDER` | `mock` today |

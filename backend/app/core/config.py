@@ -25,7 +25,7 @@ class Settings(BaseSettings):
     )
 
     # --- general -------------------------------------------------------------
-    app_name: str = "AI Video Studio"
+    app_name: str = "Khmer Story Studio"
     environment: Literal["development", "staging", "production"] = "development"
     debug: bool = True
     api_prefix: str = "/api"
@@ -64,11 +64,11 @@ class Settings(BaseSettings):
     # in-network endpoint. Empty means "same as s3_endpoint_url".
     s3_renderer_base_url: str = ""
 
-    # --- AI providers (wired in later phases; empty means "use the mock") ----
+    # --- AI providers --------------------------------------------------------
     openrouter_api_key: str = ""
     openrouter_model: str = "openai/gpt-4o-mini"
     openrouter_base_url: str = "https://openrouter.ai/api/v1"
-    llm_provider: Literal["mock", "openrouter"] = "mock"
+    llm_provider: Literal["mock", "openrouter"] = "openrouter"
 
     # edge = Microsoft Edge neural voices (real speech, no API key, has Khmer)
     # mock = silent audio of the correct duration (offline / tests)
@@ -85,7 +85,9 @@ class Settings(BaseSettings):
     # Directory containing the Remotion project (src/render.ts). Relative paths
     # are resolved from the backend's working directory.
     renderer_dir: str = "../renderer"
-    render_timeout_seconds: int = 1800
+    # Five-minute 1080p lessons can contain 9,000 frames at 30 fps. Allow an
+    # hour on modest development machines before treating the render as stuck.
+    render_timeout_seconds: int = 3600
     max_upload_size_mb: int = 100
 
     @field_validator("cors_origins", mode="before")

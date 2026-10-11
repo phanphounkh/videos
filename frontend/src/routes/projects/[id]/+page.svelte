@@ -48,17 +48,17 @@
     }
   });
 
-  // While background media generation is in flight, keep refreshing so images
-  // and narration appear as each job finishes.
+  // While background narration generation is in flight, keep refreshing so
+  // each Khmer voice appears as its job finishes.
   //
   // Polling must NOT key off project.status alone: generation sets "ready" as
   // soon as the script is written, and the per-scene media jobs finish later, so
   // a client watching only the status can stop before the media lands. We also
-  // poll while any scene is still missing its image or audio, with an attempt
-  // cap so a permanently failed scene cannot poll forever.
+  // poll while any scene is still missing audio, with an attempt cap so a
+  // permanently failed scene cannot poll forever.
   const mediaPending = $derived(
     project?.status === 'generating' ||
-      (scenes.length > 0 && scenes.some((scene) => !scene.image_url || !scene.audio_url))
+      (scenes.length > 0 && scenes.some((scene) => !scene.audio_url))
   );
 
   $effect(() => {
@@ -108,15 +108,29 @@
       api.createScene(projectId, {
         narration: '',
         on_screen_text: 'New scene',
-        duration: 5,
-        visual_prompt: 'clean abstract background, minimal, soft lighting'
+        duration: 5
       })
     );
   const reorder = (ids: string[]) => mutate(() => api.reorderScenes(projectId, ids));
-  const regenerateImage = (id: string) => mutate(() => api.generateSceneImage(id));
   const regenerateVoice = (id: string) => mutate(() => api.generateSceneVoice(id));
-  const upload = (id: string, file: File) => mutate(() => api.uploadAsset(projectId, file, id));
   const rename = (title: string) => mutate(() => api.updateProject(projectId, { title }));
+
+  const makeKhmer = () => {
+    if (!project) return;
+    pollAttempts = 0;
+    return mutate(() =>
+      api.generate(projectId, {
+        prompt: project?.prompt || project?.title || 'មេរៀនអប់រំ',
+        duration: Math.min(300, Math.max(10, project?.target_duration || 60)),
+        language: 'km',
+        style: project?.style || 'social_media',
+        aspect_ratio: project?.aspect_ratio,
+        tone: project?.tone,
+        audience: project?.audience,
+        generate_media: true
+      })
+    );
+  };
 
   async function startRender() {
     renderBusy = true;
@@ -143,7 +157,7 @@
       <p
         class="mb-4 rounded-lg border border-amber-900/60 bg-amber-950/40 px-4 py-2 text-sm text-amber-200"
       >
-        Generating images and narration in the background… this view refreshes itself.
+        Generating Khmer narration in the background… this view refreshes itself.
       </p>
     {/if}
 
@@ -160,9 +174,8 @@
       onduplicateScene={duplicateScene}
       onaddScene={addScene}
       onreorder={reorder}
-      onregenerateImage={regenerateImage}
       onregenerateVoice={regenerateVoice}
-      onupload={upload}
+      onmakeKhmer={makeKhmer}
       onrename={rename}
       onstartRender={startRender}
     />

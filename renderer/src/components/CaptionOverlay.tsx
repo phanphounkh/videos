@@ -26,18 +26,21 @@ export const CaptionOverlay: React.FC<{ captions: Caption[]; language: string }>
     <div
       style={{
         position: 'absolute',
-        bottom: height * 0.08,
-        left: '8%',
-        right: '8%',
-        textAlign: 'center'
+        bottom: height * 0.025,
+        left: '6%',
+        right: '6%',
+        textAlign: 'center',
+        zIndex: 30
       }}
     >
       <span
         style={{
           display: 'inline-block',
-          padding: '14px 26px',
+          padding: '13px 28px',
           borderRadius: 14,
-          backgroundColor: 'rgba(0,0,0,0.65)',
+          backgroundColor: 'rgba(2,6,23,0.92)',
+          border: '1px solid rgba(255,255,255,.12)',
+          boxShadow: '0 14px 35px rgba(2,6,23,.5)',
           color: '#ffffff',
           fontSize: isKhmer ? 48 : 54,
           lineHeight: isKhmer ? 1.8 : 1.3,

@@ -22,23 +22,23 @@
     }) => void;
   } = $props();
 
-  let prompt = $state('Create a 60-second beginner-friendly video explaining neural networks.');
+  let prompt = $state('រឿងកំប្លែងខ្លីអំពីយុវជនម្នាក់ដែលយល់ច្រឡំថាឆ្មារបស់គាត់អាចនិយាយបាន។');
   let duration = $state(60);
-  let language = $state('en');
-  let style = $state('educational');
-  let aspect = $state('16:9');
-  let tone = $state('clear and friendly');
-  let audience = $state('beginners');
+  let language = $state('km');
+  let style = $state('social_media');
+  let aspect = $state('9:16');
+  let tone = $state('funny, emotional, and fast-paced');
+  let audience = $state('Khmer social media viewers');
 
-  const durations = [30, 60, 90, 180];
+  const durations = [30, 60, 90, 180, 300];
   const styles = [
-    'educational',
-    'cinematic',
-    'documentary',
     'social_media',
+    'storytelling',
+    'cinematic',
+    'educational',
+    'documentary',
     'minimal',
-    'technology',
-    'storytelling'
+    'technology'
   ];
 
   function submit(event: SubmitEvent) {
@@ -55,10 +55,10 @@
   onsubmit={submit}
 >
   <div>
-    <h2 class="text-xl font-semibold">What video do you want to create?</h2>
+    <h2 class="text-xl font-semibold">Create a Khmer entertainment story</h2>
     <p class="text-sm text-slate-400">
-      Describe it in one sentence. The script, scenes, visuals, narration and captions are
-      generated for you.
+      Describe your characters, situation, and desired ending. AI builds one connected story
+      with a hook, escalation, twist and payoff, up to 5 minutes long.
     </p>
   </div>
 
@@ -69,7 +69,7 @@
       required
       maxlength="2000"
       class="w-full resize-y rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm"
-      placeholder="Create a 1-minute educational video explaining machine learning for beginners."
+      placeholder="Example: A funny ghost story in a Cambodian village with an unexpected ending."
     ></textarea>
   </Field>
 
@@ -119,7 +119,7 @@
   <div class="flex items-center gap-3">
     <Button type="submit" loading={busy}>Generate video</Button>
     <span class="text-xs text-slate-500">
-      Script runs now; images and narration continue in the background.
+      Khmer uses the natural Piseth voice by default. Narration continues in the background.
     </span>
   </div>
 </form>

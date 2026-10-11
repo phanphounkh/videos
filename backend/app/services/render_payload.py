@@ -25,19 +25,24 @@ def build_composition_payload(project: Project) -> dict[str, Any]:
         # renderer_url, NOT public_url: headless Chromium fetches these from
         # inside the worker container.
         visual_url = renderer_url(scene.image_asset.storage_key) if scene.image_asset else None
+        visual_type = "image" if scene.image_asset else None
         # A video asset takes precedence over a still image when present.
         if scene.video_asset is not None:
             visual_url = renderer_url(scene.video_asset.storage_key)
+            visual_type = "video"
 
         scenes.append(
             {
                 "id": str(scene.id),
+                "sceneNumber": scene.scene_number,
                 "duration": float(scene.duration),
                 "visualUrl": visual_url,
+                "visualType": visual_type,
                 "audioUrl": (
                     renderer_url(scene.audio_asset.storage_key) if scene.audio_asset else None
                 ),
                 "onScreenText": scene.on_screen_text,
+                "narration": scene.narration,
                 "captions": [
                     {
                         "text": caption.text,

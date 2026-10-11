@@ -73,8 +73,8 @@ class GenerationService:
         project.target_duration = payload.duration
         await self.session.commit()
 
-        provider = get_llm_provider()
         try:
+            provider = get_llm_provider()
             script = await provider.generate_script(
                 ScriptRequest(
                     prompt=payload.prompt,
