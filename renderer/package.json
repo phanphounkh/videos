@@ -1,5 +1,5 @@
 {
-  "name": "ai-video-studio-renderer",
+  "name": "sorya-renderer",
   "version": "0.1.0",
   "private": true,
   "description": "Remotion composition + render CLI used by the backend worker",
@@ -7,6 +7,7 @@
   "scripts": {
     "studio": "remotion studio src/index.ts",
     "render:sample": "tsx src/render.ts samples/composition.json out/sample.mp4",
+    "thumbnail:sample": "tsx src/thumbnail.ts samples/thumbnail.json out/thumbnail.jpg",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

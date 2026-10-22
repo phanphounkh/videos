@@ -25,7 +25,7 @@ class Settings(BaseSettings):
     )
 
     # --- general -------------------------------------------------------------
-    app_name: str = "Khmer Story Studio"
+    app_name: str = "Sorya"
     environment: Literal["development", "staging", "production"] = "development"
     debug: bool = True
     api_prefix: str = "/api"
@@ -68,15 +68,45 @@ class Settings(BaseSettings):
     openrouter_api_key: str = ""
     openrouter_model: str = "openai/gpt-4o-mini"
     openrouter_base_url: str = "https://openrouter.ai/api/v1"
-    llm_provider: Literal["mock", "openrouter"] = "openrouter"
+    # gemini falls back to openrouter while GEMINI_API_KEY is empty.
+    llm_provider: Literal["mock", "openrouter", "gemini"] = "openrouter"
 
+    # gemini = Gemini TTS: natural Khmer speech, per-scene delivery direction,
+    #          and subtitles aligned to the audio by Gemini (needs GEMINI_API_KEY;
+    #          falls back to edge while the key is empty)
     # edge = Microsoft Edge neural voices (real speech, no API key, has Khmer)
     # mock = silent audio of the correct duration (offline / tests)
-    tts_provider: Literal["edge", "mock"] = "edge"
+    tts_provider: Literal["gemini", "edge", "mock"] = "edge"
     tts_api_key: str = ""
-    # Edge TTS prosody, e.g. "-10%" to slow narration down for learners.
-    tts_rate: str = "+0%"
+    # Edge TTS prosody. Short-form video holds attention better with brisk
+    # narration; use e.g. "-10%" to slow it down for learners.
+    tts_rate: str = "+10%"
     tts_volume: str = "+0%"
+
+    # --- Gemini (story, voice and subtitle timing) ---------------------------
+    gemini_api_key: str = ""
+    gemini_base_url: str = "https://generativelanguage.googleapis.com/v1beta"
+    # Story scripts and subtitle alignment (reads the generated audio).
+    gemini_model: str = "gemini-3.8-flash"
+    gemini_tts_model: str = "gemini-3.8-flash-tts"
+    # Model that times the subtitles against the audio. Empty = gemini_model.
+    # When it is unavailable (quota), timing falls back to the audio's pauses.
+    gemini_align_model: str = ""
+    # Second pass that proofreads a generated Khmer script (spelling, natural
+    # phrasing, numbers as words). Doubles story-generation time.
+    gemini_review_script: bool = True
+    # Requests per minute allowed per model. Free-tier keys allow 5; raise it on
+    # a paid tier to generate long videos faster. 0 disables pacing.
+    gemini_requests_per_minute: int = 5
+    # Prebuilt voice for the presenter; a project's voice ("male"/"female" or
+    # a Gemini voice name) overrides it.
+    gemini_tts_voice: str = "Puck"
+    # Baseline delivery; each scene's own direction (whisper, excited...) is
+    # added on top of it.
+    gemini_tts_style: str = (
+        "a warm, lively native Cambodian storyteller talking to camera in a short "
+        "video; clear, natural Khmer pronunciation; brisk but easy to follow"
+    )
 
     image_provider: Literal["mock", "replicate"] = "mock"
     image_api_key: str = ""

@@ -47,7 +47,7 @@
         <div
           class="h-full rounded-full transition-all {job.status === 'failed'
             ? 'bg-red-500'
-            : 'bg-indigo-500'}"
+            : 'bg-sun-500'}"
           style={`width:${job.progress}%`}
         ></div>
       </div>

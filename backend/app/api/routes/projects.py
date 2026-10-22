@@ -10,6 +10,7 @@ from app.schemas.presenters import project_to_response, scenes_to_response
 from app.schemas.project import ProjectCreateRequest, ProjectResponse, ProjectUpdateRequest
 from app.schemas.scene import ProjectDetailResponse
 from app.services.project_service import ProjectService
+from app.services.queue import enqueue
 
 router = APIRouter(prefix="/projects", tags=["projects"])
 
@@ -72,6 +73,19 @@ async def update_project(
 ) -> ProjectResponse:
     project = await ProjectService(session).update(project_id, current_user.id, payload)
     return project_to_response(project)
+
+
+@router.post(
+    "/{project_id}/thumbnail",
+    status_code=status.HTTP_202_ACCEPTED,
+    summary="Redraw the project's thumbnail from its current title and script",
+)
+async def regenerate_thumbnail(
+    project_id: uuid.UUID, current_user: CurrentUser, session: SessionDep
+) -> dict[str, str]:
+    project = await ProjectService(session).get(project_id, current_user.id)
+    await enqueue("generate_thumbnail", str(project.id))
+    return {"status": "queued"}
 
 
 @router.post("/{project_id}/duplicate", response_model=ProjectResponse,

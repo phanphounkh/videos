@@ -14,11 +14,14 @@ import uuid
 from fastapi import APIRouter, status
 
 from app.api.dependencies import CurrentUser, SessionDep
+from app.core.logging import get_logger
 from app.models.enums import ProjectStatus
 from app.schemas.generation import GenerateRequest, GenerateResponse, SceneMediaResponse
 from app.services.generation_service import GenerationService
 from app.services.queue import enqueue
 from app.services.storage.urls import public_url
+
+log = get_logger(__name__)
 
 projects_router = APIRouter(prefix="/projects", tags=["generation"])
 scenes_router = APIRouter(prefix="/scenes", tags=["generation"])
@@ -38,6 +41,14 @@ async def generate_video(
 ) -> GenerateResponse:
     service = GenerationService(session)
     project = await service.generate_script_and_scenes(project_id, current_user.id, payload)
+
+    if project.scenes:
+        # The cover is drawn from the new script, whether or not media follows.
+        # Best effort: a missing cover must never fail the generation request.
+        try:
+            await enqueue("generate_thumbnail", str(project.id))
+        except Exception:  # noqa: BLE001
+            log.warning("thumbnail_enqueue_failed", project_id=str(project.id))
 
     queued = 0
     if payload.generate_media and project.scenes:

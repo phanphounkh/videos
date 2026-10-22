@@ -155,6 +155,15 @@ async def test_composition_payload_shape(session, auth_client: AsyncClient, proj
         "fps": 30,
         "title": loaded.title,
         "language": "km",
+        "purpose": "story",
+        "presenter": True,
+        "ctaText": None,
+        "music": True,
+        "musicUrl": None,
+        "musicVolume": 1.0,
+        "musicFadeIn": 0.4,
+        "musicFadeOut": 1.0,
+        "musicDuck": True,
     }
     assert [scene["duration"] for scene in payload["scenes"]] == [4.0, 2.5]
     first = payload["scenes"][0]
@@ -162,12 +171,19 @@ async def test_composition_payload_shape(session, auth_client: AsyncClient, proj
     assert set(first) == {
         "id", "sceneNumber", "duration", "visualUrl", "visualType", "audioUrl",
         "onScreenText", "narration", "captions", "transition", "backgroundColor",
+        "words", "mouth", "mouthFps", "mood", "layers", "audioStart", "voiceVolume",
+        "clipVolume", "trimStart", "mediaFit", "kenBurns",
     }
+    assert (first["layers"], first["audioStart"], first["voiceVolume"], first["clipVolume"]) == (
+        [], 0.0, 1.0, 0.0)
+    assert (first["mediaFit"], first["kenBurns"]) == ("cover", True)
     assert first["sceneNumber"] == 1
     assert first["onScreenText"] == "Title"
     assert first["narration"] == "hello world"
     assert first["visualUrl"] is None  # no image generated in this test
     assert first["visualType"] is None
+    # No voice generated yet: no speech marks, so the renderer estimates.
+    assert first["words"] == [] and first["mouth"] == []
     assert first["captions"][0]["start"] == 0.0
     # Captions are derived from narration as soon as the scene exists.
     assert first["captions"][0]["text"]
@@ -211,3 +227,35 @@ async def test_composition_payload_identifies_video_visuals(
 
     assert payload["scenes"][0]["visualType"] == "video"
     assert payload["scenes"][0]["visualUrl"].endswith("/clip.mp4")
+
+
+async def test_a_crashing_render_task_fails_the_job_instead_of_leaving_it_queued(
+    session, auth_client: AsyncClient, project: dict, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Regression: a worker running stale code crashed while importing the
+    renderer, and the job stayed "queued" forever with the editor waiting."""
+    from app.models.enums import RenderStatus
+    from app.models.render_job import RenderJob
+    from app.services.render_service import RenderService
+    from app.workers.tasks import render_project
+
+    async def fake_enqueue(*args: object, **kwargs: object) -> str:
+        return "job-1"
+
+    async def crash(self: object, job_id: uuid.UUID) -> None:
+        raise ImportError("cannot import name 'speech_settings'")
+
+    monkeypatch.setattr("app.services.queue.enqueue", fake_enqueue)
+    monkeypatch.setattr(RenderService, "execute_job", crash)
+    await auth_client.post(
+        f"/api/projects/{project['id']}/scenes", json={"narration": "a", "duration": 3}
+    )
+    job_id = (await auth_client.post(f"/api/projects/{project['id']}/render")).json()["job_id"]
+
+    with pytest.raises(ImportError):
+        await render_project({}, job_id)
+
+    job = await session.get(RenderJob, uuid.UUID(job_id))
+    assert job.status == RenderStatus.FAILED
+    assert "speech_settings" in job.error_message
+    assert (await auth_client.get(f"/api/projects/{project['id']}")).json()["status"] == "ready"

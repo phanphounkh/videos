@@ -55,10 +55,26 @@ VISUAL_BEATS = [
     "animated emotional or funny payoff, memorable final reaction shot",
 ]
 
-ON_SCREEN_EN = ["Wait—what happened?", "Hours earlier", "The mistake", "It gets worse",
-                "The hidden truth", "One last choice", "No turning back", "What would you do?"]
-ON_SCREEN_KM = ["មានអ្វីកើតឡើង?", "ប៉ុន្មានម៉ោងមុន", "កំហុសមួយ", "កាន់តែធ្ងន់",
-                "ការពិតលេចឡើង", "ជម្រើសចុងក្រោយ", "គ្មានផ្លូវថយ", "បើជាអ្នកវិញ?"]
+ON_SCREEN_EN = [
+    "Wait—what happened?",
+    "Hours earlier",
+    "The mistake",
+    "It gets worse",
+    "The hidden truth",
+    "One last choice",
+    "No turning back",
+    "What would you do?",
+]
+ON_SCREEN_KM = [
+    "មានអ្វីកើតឡើង?",
+    "ប៉ុន្មានម៉ោងមុន",
+    "កំហុសមួយ",
+    "កាន់តែធ្ងន់",
+    "ការពិតលេចឡើង",
+    "ជម្រើសចុងក្រោយ",
+    "គ្មានផ្លូវថយ",
+    "បើជាអ្នកវិញ?",
+]
 
 # Extra teaching beats let the offline provider fill longer lessons with
 # narration that matches the requested scene duration. Without these, a
@@ -87,9 +103,90 @@ KM_DETAILS = [
 ]
 
 
-def _paced_narration(base: str, topic: str, target_seconds: float, *, language: str) -> str:
-    """Add useful teaching detail until speech approximately fills the scene."""
-    details = KM_DETAILS if language.lower().startswith("km") else EN_DETAILS
+# Beats for every purpose except story. English differs per purpose; Khmer uses
+# one neutral set, because the mock cannot write purpose-specific Khmer.
+PURPOSE_EN_BEATS = {
+    "product_demo": [
+        "Meet {topic}: the simple way to get more done.",
+        "Here is the problem it solves, and why it matters every single day.",
+        "First, it keeps everything simple, so you can start in minutes.",
+        "Next, it saves you time on the work you repeat the most.",
+        "Then, it helps you share great results with just one click.",
+        "That is all it takes. Try it today and see the difference.",
+    ],
+    "social_post": [
+        "Stop scrolling. This one is about {topic}, and it is worth ten seconds.",
+        "Most people get this wrong without even noticing.",
+        "Here is the first thing to try, and it takes almost no effort.",
+        "Here is the second, and it is the one people forget.",
+        "And the last one is the simplest of all.",
+        "Save this for later, and follow for more like it.",
+    ],
+    "creator": [
+        "In this video, I am going to show you {topic}, and why it matters.",
+        "Before we start, here is what you will get out of the next few minutes.",
+        "Tip number one is the one that changed things the most for me.",
+        "Tip number two is simple, but almost nobody does it.",
+        "Tip number three is where it all comes together.",
+        "That is the recap. If this helped, subscribe and tell me what you want next.",
+    ],
+    "explainer": [
+        "Have you ever wondered how {topic} really works?",
+        "Let us start with the simple idea behind it.",
+        "Now, here is how that idea works step by step.",
+        "A good way to picture it is with an everyday example.",
+        "Put those pieces together and the whole picture makes sense.",
+        "So now you know how {topic} works, and you can explain it to someone else.",
+    ],
+}
+KM_PURPOSE_BEATS = [
+    "ស្គាល់ {topic} ជាវិធីងាយស្រួលដើម្បីធ្វើការបានច្រើនជាងមុន។",
+    "នេះជាបញ្ហាដែលវាដោះស្រាយ ហើយហេតុអ្វីវាសំខាន់ជារៀងរាល់ថ្ងៃ។",
+    "ទីមួយ វាធ្វើឱ្យអ្វីៗសាមញ្ញ ដូច្នេះអ្នកអាចចាប់ផ្តើមបានក្នុងប៉ុន្មាននាទី។",
+    "ទីពីរ វាជួយសន្សំពេលវេលាលើការងារដែលអ្នកធ្វើម្តងហើយម្តងទៀត។",
+    "ទីបី វាជួយឱ្យអ្នកចែករំលែកលទ្ធផលល្អៗបានតែមួយចុច។",
+    "ប៉ុណ្ណឹងហើយ សាកល្បងថ្ងៃនេះ ហើយមើលភាពខុសគ្នា។",
+]
+PURPOSE_ON_SCREEN_EN = [
+    "Meet it",
+    "The problem",
+    "Simple start",
+    "Save time",
+    "Share it",
+    "Try it today",
+]
+PURPOSE_ON_SCREEN_KM = ["ស្គាល់វា", "បញ្ហា", "ចាប់ផ្តើមងាយ", "សន្សំពេល", "ចែករំលែក", "សាកល្បងថ្ងៃនេះ"]
+PURPOSE_VISUAL = [
+    "clean modern visual introducing {topic}, bright soft lighting, no text",
+    "relatable everyday situation that shows the problem, natural light",
+    "simple clear interface or product close-up, tidy composition",
+    "time-saving moment, smooth motion, calm colours",
+    "finished result being shared, happy and bright",
+    "confident closing shot of {topic}, strong clean background",
+]
+EN_NEUTRAL_DETAILS = [
+    "It is built to be simple, so anyone can use it from the very first minute.",
+    "Small details are handled for you, so you can focus on what matters.",
+    "The result is something you can be proud to share.",
+    "Every step is clear, with nothing extra to learn or set up.",
+]
+KM_NEUTRAL_DETAILS = [
+    "វាត្រូវបានបង្កើតឡើងឱ្យសាមញ្ញ ដូច្នេះអ្នកណាក៏អាចប្រើបានតាំងពីនាទីដំបូង។",
+    "ព័ត៌មានលម្អិតតូចតាចត្រូវបានដោះស្រាយឱ្យអ្នក ដូច្នេះអ្នកអាចផ្តោតលើអ្វីដែលសំខាន់។",
+    "លទ្ធផលគឺអ្វីមួយដែលអ្នកអាចមានមោទនភាពក្នុងការចែករំលែក។",
+    "គ្រប់ជំហានច្បាស់លាស់ ដោយមិនចាំបាច់រៀនឬរៀបចំអ្វីបន្ថែម។",
+]
+
+
+def _paced_narration(
+    base: str, topic: str, target_seconds: float, *, language: str, story: bool = True
+) -> str:
+    """Add useful detail until speech approximately fills the scene."""
+    is_khmer = language.lower().startswith("km")
+    if story:
+        details = KM_DETAILS if is_khmer else EN_DETAILS
+    else:
+        details = KM_NEUTRAL_DETAILS if is_khmer else EN_NEUTRAL_DETAILS
     parts = [base]
     index = 0
     # Leave a small visual pause at the end of every scene. The cap is defensive
@@ -107,8 +204,15 @@ class MockLLMProvider(LLMProvider):
     async def generate_script(self, request: ScriptRequest) -> GeneratedScript:
         topic = self._topic(request.prompt)
         is_khmer = request.language.lower().startswith("km")
-        beats = KM_BEATS if is_khmer else EN_BEATS
-        titles = ON_SCREEN_KM if is_khmer else ON_SCREEN_EN
+        story = request.purpose not in PURPOSE_EN_BEATS
+        if story:
+            beats = KM_BEATS if is_khmer else EN_BEATS
+            titles = ON_SCREEN_KM if is_khmer else ON_SCREEN_EN
+            visuals = VISUAL_BEATS
+        else:
+            beats = KM_PURPOSE_BEATS if is_khmer else PURPOSE_EN_BEATS[request.purpose]
+            titles = PURPOSE_ON_SCREEN_KM if is_khmer else PURPOSE_ON_SCREEN_EN
+            visuals = PURPOSE_VISUAL
         # The offline provider cannot translate an English topic. Keep spoken
         # Khmer fully Khmer instead of making the Khmer voice read Latin words.
         narration_topic = "ប្រធានបទនេះ" if is_khmer and topic.isascii() else topic
@@ -129,8 +233,9 @@ class MockLLMProvider(LLMProvider):
                     narration_topic,
                     per_scene,
                     language=request.language,
+                    story=story,
                 ),
-                visual_prompt=VISUAL_BEATS[index % len(VISUAL_BEATS)].format(topic=visual_topic),
+                visual_prompt=visuals[index % len(visuals)].format(topic=visual_topic),
                 on_screen_text=titles[index % len(titles)],
                 duration=per_scene,
                 transition="fade",
@@ -138,10 +243,17 @@ class MockLLMProvider(LLMProvider):
             for index in range(scene_count)
         ]
 
-        title = f"រឿងខ្លី៖ {narration_topic}" if is_khmer else topic.title()
+        if not story:
+            title = narration_topic if is_khmer else topic.title()
+        else:
+            title = f"រឿងខ្លី៖ {narration_topic}" if is_khmer else topic.title()
         script = GeneratedScript(
             title=title[:300],
-            description=f"A connected {request.style} entertainment story inspired by {topic}.",
+            description=(
+                f"A connected {request.style} entertainment story inspired by {topic}."
+                if story
+                else f"A {request.purpose.replace('_', ' ')} video about {topic}."
+            ),
             language=request.language,
             estimated_duration=round(per_scene * scene_count, 2),
             scenes=scenes,

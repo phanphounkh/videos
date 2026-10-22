@@ -6,6 +6,8 @@ engine without any caller changing:
     get_tts_provider("km")  ->  a provider that actually speaks Khmer
     get_tts_provider("en")  ->  the configured default
 
+`TTS_PROVIDER=gemini` uses Gemini TTS with Gemini-aligned subtitles once
+GEMINI_API_KEY is set, and falls back to edge until then.
 `TTS_PROVIDER=edge` is the real default (Microsoft Edge neural voices, no API
 key, includes Khmer). `TTS_PROVIDER=mock` produces silent audio of the correct
 duration and is useful offline or in tests.
@@ -17,13 +19,20 @@ from app.core.config import get_settings
 from app.core.exceptions import ProviderError
 from app.core.logging import get_logger
 from app.services.ai.base import TTSProvider
+from app.services.ai.gemini import gemini_configured
 from app.services.ai.speech.edge_tts_provider import EdgeTTSProvider
+from app.services.ai.speech.gemini_tts import GeminiTTSProvider
 from app.services.ai.speech.silent_tts import SilentTTSProvider
 from app.services.ai.speech.timing import (
+    align_marks,
+    captions_from_marks,
     distribute_timings,
     estimate_duration,
+    find_pauses,
     is_khmer,
     khmer_clusters,
+    snap_to_pauses,
+    speech_units,
     split_into_segments,
 )
 
@@ -31,13 +40,19 @@ log = get_logger(__name__)
 
 __all__ = [
     "EdgeTTSProvider",
+    "GeminiTTSProvider",
     "SilentTTSProvider",
     "TTSProvider",
+    "align_marks",
+    "captions_from_marks",
     "distribute_timings",
     "estimate_duration",
+    "find_pauses",
     "get_tts_provider",
     "is_khmer",
     "khmer_clusters",
+    "snap_to_pauses",
+    "speech_units",
     "split_into_segments",
 ]
 
@@ -52,6 +67,11 @@ def _edge_provider() -> TTSProvider:
     return EdgeTTSProvider()
 
 
+@lru_cache
+def _gemini_provider() -> TTSProvider:
+    return GeminiTTSProvider()
+
+
 def get_tts_provider(language: str = "en") -> TTSProvider:
     """Resolve a TTS provider for a language.
 
@@ -64,6 +84,12 @@ def get_tts_provider(language: str = "en") -> TTSProvider:
     if configured == "mock":
         return _mock_provider()
 
+    if configured == "gemini":
+        if gemini_configured():
+            return _gemini_provider()
+        log.warning("tts_gemini_key_missing", fallback="edge")
+        configured = "edge"
+
     if configured == "edge":
         provider = _edge_provider()
         if provider.supports_language(language):
@@ -72,6 +98,6 @@ def get_tts_provider(language: str = "en") -> TTSProvider:
         return _mock_provider()
 
     raise ProviderError(
-        f"TTS_PROVIDER={configured} is not implemented. Use 'edge' or 'mock'.",
+        f"TTS_PROVIDER={configured} is not implemented. Use 'gemini', 'edge' or 'mock'.",
         code="PROVIDER_NOT_IMPLEMENTED",
     )

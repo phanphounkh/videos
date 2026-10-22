@@ -1,5 +1,6 @@
 <script lang="ts">
   import { goto } from '$app/navigation';
+  import AuthShell from '$lib/components/auth/AuthShell.svelte';
   import Button from '$lib/components/ui/Button.svelte';
   import ErrorBanner from '$lib/components/ui/ErrorBanner.svelte';
   import Field from '$lib/components/ui/Field.svelte';
@@ -21,15 +22,10 @@
     }
   }
 
-  const input = 'w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm';
+  const input = 'h-10 w-full px-3 text-sm';
 </script>
 
-<main class="mx-auto flex min-h-screen max-w-sm flex-col justify-center gap-6 px-6">
-  <div>
-    <h1 class="text-2xl font-bold">Create an account</h1>
-    <p class="text-sm text-slate-400">Khmer Story Studio</p>
-  </div>
-
+<AuthShell title="Create your account" subtitle="Start making videos in minutes.">
   <form class="flex flex-col gap-4" onsubmit={submit}>
     <Field label="Name">
       <input bind:value={fullName} class={input} autocomplete="name" />
@@ -49,10 +45,11 @@
       />
     </Field>
     <ErrorBanner {error} />
-    <Button type="submit" loading={auth.loading}>Register</Button>
+    <Button type="submit" loading={auth.loading} class="mt-1 h-10">Create account</Button>
   </form>
 
-  <p class="text-sm text-slate-400">
-    Already registered? <a href="/login" class="text-indigo-400 hover:text-indigo-300">Log in</a>
-  </p>
-</main>
+  {#snippet footer()}
+    Already registered?
+    <a href="/login" class="font-medium text-sun-400 hover:text-sun-300">Log in</a>
+  {/snippet}
+</AuthShell>

@@ -12,7 +12,9 @@ CAVEAT, stated plainly: this is Microsoft's Edge "read aloud" endpoint, not a
       what the interface is for; nothing else in the codebase changes.
 
 The returned duration is MEASURED from the audio with ffprobe, never estimated,
-so captions stay in sync with the narration.
+so captions stay in sync with the narration. Word boundaries are requested too:
+Edge reports one per word for English and one per space-separated phrase for
+Khmer, which is what lets captions follow the voice instead of a guess.
 """
 
 import asyncio
@@ -22,7 +24,7 @@ import edge_tts
 from app.core.config import get_settings
 from app.core.exceptions import ProviderError
 from app.core.logging import get_logger
-from app.services.ai.base import AudioResult, TTSProvider
+from app.services.ai.base import AudioResult, TTSProvider, WordMark
 from app.services.ai.speech.timing import estimate_duration
 from app.services.media import probe_duration
 
@@ -53,6 +55,9 @@ VOICE_ALIASES: dict[tuple[str, str], str] = {
 
 MAX_ATTEMPTS = 3
 
+# Edge reports offsets and durations in 100-nanosecond ticks.
+TICKS_PER_SECOND = 10_000_000
+
 
 class EdgeTTSProvider(TTSProvider):
     name = "edge-tts"
@@ -60,7 +65,9 @@ class EdgeTTSProvider(TTSProvider):
     def supports_language(self, language: str) -> bool:
         return self._language_key(language) in DEFAULT_VOICES
 
-    async def generate(self, text: str, language: str, voice: str) -> AudioResult:
+    async def generate(
+        self, text: str, language: str, voice: str, *, style: str | None = None
+    ) -> AudioResult:
         clean = text.strip()
         if not clean:
             raise ProviderError("There is no text to speak.", code="TTS_EMPTY_TEXT")
@@ -71,7 +78,7 @@ class EdgeTTSProvider(TTSProvider):
         last_error = "unknown error"
         for attempt in range(1, MAX_ATTEMPTS + 1):
             try:
-                data = await self._synthesize(
+                data, marks = await self._synthesize(
                     clean, resolved, settings.tts_rate, settings.tts_volume
                 )
             except Exception as exc:  # noqa: BLE001 - the SDK raises many types
@@ -106,6 +113,7 @@ class EdgeTTSProvider(TTSProvider):
                 provider=self.name,
                 voice=resolved,
                 is_placeholder=False,
+                marks=marks,
             )
 
         raise ProviderError(
@@ -114,13 +122,22 @@ class EdgeTTSProvider(TTSProvider):
         )
 
     @staticmethod
-    async def _synthesize(text: str, voice: str, rate: str, volume: str) -> bytes:
-        communicate = edge_tts.Communicate(text=text, voice=voice, rate=rate, volume=volume)
+    async def _synthesize(
+        text: str, voice: str, rate: str, volume: str
+    ) -> tuple[bytes, list[WordMark]]:
+        communicate = edge_tts.Communicate(
+            text=text, voice=voice, rate=rate, volume=volume, boundary="WordBoundary"
+        )
         chunks = bytearray()
+        marks: list[WordMark] = []
         async for chunk in communicate.stream():
             if chunk["type"] == "audio" and chunk.get("data"):
                 chunks.extend(chunk["data"])
-        return bytes(chunks)
+            elif chunk["type"] == "WordBoundary" and chunk.get("text"):
+                start = chunk["offset"] / TICKS_PER_SECOND
+                end = start + chunk["duration"] / TICKS_PER_SECOND
+                marks.append(WordMark(chunk["text"], round(start, 3), round(end, 3)))
+        return bytes(chunks), marks
 
     @staticmethod
     def _language_key(language: str) -> str:

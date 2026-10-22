@@ -7,16 +7,21 @@ touches its output until it has passed through `GeneratedScript`.
 """
 
 import uuid
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
-from app.models.enums import AspectRatio, Transition, VideoStyle
+from app.models.enums import AspectRatio, Transition, VideoPurpose, VideoStyle
 
 MAX_SCENES = 40
 MIN_SCENE_DURATION = 1.0
 MAX_SCENE_DURATION = 60.0
 MAX_VIDEO_DURATION = 300
+
+# The presenter's emotional beat for a scene; drives the avatar's expression,
+# gestures and colours in the renderer.
+SceneMood = Literal["hook", "setup", "rising", "twist", "climax", "payoff"]
+SCENE_MOODS: tuple[str, ...] = ("hook", "setup", "rising", "twist", "climax", "payoff")
 
 
 class GenerateRequest(BaseModel):
@@ -26,6 +31,12 @@ class GenerateRequest(BaseModel):
     duration: int = Field(default=60, ge=10, le=MAX_VIDEO_DURATION)
     language: str = Field(default="km", max_length=16)
     style: VideoStyle = VideoStyle.SOCIAL_MEDIA
+    # What the video is for. None keeps the project's purpose.
+    purpose: VideoPurpose | None = None
+    # Host on screen? None keeps the project's setting.
+    presenter: bool | None = None
+    # Closing call-to-action label, e.g. "Shop now". None keeps the project's.
+    cta_text: str | None = Field(default=None, max_length=60)
     aspect_ratio: AspectRatio | None = None
     tone: str | None = Field(default=None, max_length=64)
     audience: str | None = Field(default=None, max_length=128)
@@ -43,6 +54,26 @@ class GeneratedScene(BaseModel):
     on_screen_text: str | None = Field(default=None, max_length=500)
     duration: float = Field(ge=MIN_SCENE_DURATION, le=MAX_SCENE_DURATION)
     transition: Transition = Transition.FADE
+    # Optional so older scripts and other providers still validate.
+    mood: SceneMood | None = None
+    # Voice direction for this scene, e.g. "whispering, suspenseful".
+    delivery: str | None = Field(default=None, max_length=200)
+
+    @field_validator("mood", mode="before")
+    @classmethod
+    def _tolerate_unknown_mood(cls, value: Any) -> Any:
+        if isinstance(value, str):
+            value = value.strip().lower()
+            return value if value in SCENE_MOODS else None
+        return value
+
+    @field_validator("on_screen_text", "delivery", mode="before")
+    @classmethod
+    def _blank_is_none(cls, value: Any) -> Any:
+        if isinstance(value, str):
+            value = value.strip()
+            return value or None
+        return value
 
     @field_validator("narration", "visual_prompt", mode="before")
     @classmethod

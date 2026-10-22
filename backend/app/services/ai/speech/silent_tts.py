@@ -32,7 +32,9 @@ class SilentTTSProvider(TTSProvider):
     def supports_language(self, language: str) -> bool:
         return True  # silence is language-agnostic
 
-    async def generate(self, text: str, language: str, voice: str) -> AudioResult:
+    async def generate(
+        self, text: str, language: str, voice: str, *, style: str | None = None
+    ) -> AudioResult:
         duration = estimate_duration(text, language=language)
         data = await self._encode_silence(duration)
         log.info(
@@ -63,12 +65,22 @@ class SilentTTSProvider(TTSProvider):
 
         process = await asyncio.create_subprocess_exec(
             ffmpeg,
-            "-hide_banner", "-loglevel", "error",
-            "-f", "lavfi",
-            "-i", "anullsrc=channel_layout=mono:sample_rate=44100",
-            "-t", f"{duration:.3f}",
-            "-c:a", "libmp3lame", "-b:a", "64k",
-            "-f", "mp3", "pipe:1",
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-f",
+            "lavfi",
+            "-i",
+            "anullsrc=channel_layout=mono:sample_rate=44100",
+            "-t",
+            f"{duration:.3f}",
+            "-c:a",
+            "libmp3lame",
+            "-b:a",
+            "64k",
+            "-f",
+            "mp3",
+            "pipe:1",
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )

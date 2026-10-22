@@ -19,7 +19,8 @@ from app.models.scene import Scene
 from app.repositories.project_repository import ProjectRepository
 from app.repositories.scene_repository import SceneRepository
 from app.schemas.project import ProjectCreateRequest, ProjectUpdateRequest
-from app.services.storage import get_storage, scene_upload_key
+from app.services.purposes import get_purpose
+from app.services.storage import get_storage, project_upload_key, scene_upload_key
 
 log = get_logger(__name__)
 
@@ -38,6 +39,13 @@ class ProjectService:
             language=payload.language,
             aspect_ratio=payload.aspect_ratio,
             style=payload.style,
+            purpose=payload.purpose,
+            presenter=(
+                payload.presenter
+                if payload.presenter is not None
+                else get_purpose(payload.purpose).presenter
+            ),
+            cta_text=payload.cta_text or get_purpose(payload.purpose).cta_text,
             tone=payload.tone,
             audience=payload.audience,
             voice=payload.voice,
@@ -74,7 +82,15 @@ class ProjectService:
     ) -> Project:
         project = await self.get(project_id, owner_id)
         # exclude_unset: a PATCH that omits a field must not overwrite it with None.
-        for field, value in payload.model_dump(exclude_unset=True).items():
+        changes = payload.model_dump(exclude_unset=True)
+        music = changes.pop("music", None)
+        if music is not None:
+            # Reassign, never mutate in place: SQLAlchemy only sees a new dict.
+            project.settings = {**(project.settings or {}), "music": music}
+        for field, value in changes.items():
+            # purpose and presenter are NOT NULL: an explicit null means "leave it".
+            if value is None and field in {"purpose", "presenter"}:
+                continue
             setattr(project, field, value)
         await self.session.commit()
         log.info("project_updated", project_id=str(project.id))
@@ -98,15 +114,27 @@ class ProjectService:
             language=source.language,
             aspect_ratio=source.aspect_ratio,
             style=source.style,
+            purpose=source.purpose,
+            presenter=source.presenter,
+            cta_text=source.cta_text,
             tone=source.tone,
             audience=source.audience,
             voice=source.voice,
             target_duration=source.target_duration,
             fps=source.fps,
             status=source.status,
+            settings=dict(source.settings or {}),
         )
         self.projects.add(copy)
         await self.session.flush()  # assigns copy.id without ending the transaction
+
+        if source.music_asset is not None:
+            # Same reason as the scene assets below: share nothing that is
+            # deleted together with the original project.
+            music_copy = await self._copy_scene_asset(
+                source.music_asset, project_id=copy.id, scene_id=None
+            )
+            copy.music_asset_id = music_copy.id
 
         for scene in source.scenes:
             new_scene = Scene(
@@ -159,13 +187,16 @@ class ProjectService:
         return refreshed
 
     async def _copy_scene_asset(
-        self, source: Asset, *, project_id: uuid.UUID, scene_id: uuid.UUID
+        self, source: Asset, *, project_id: uuid.UUID, scene_id: uuid.UUID | None
     ) -> Asset:
         storage = get_storage()
         data = await storage.get_bytes(source.storage_key)
         filename = source.storage_key.rsplit("/", 1)[-1] or f"{source.id}.bin"
-        key = scene_upload_key(
-            str(project_id), str(scene_id), f"copy-{source.id.hex[:8]}-{filename}"
+        unique = f"copy-{source.id.hex[:8]}-{filename}"
+        key = (
+            scene_upload_key(str(project_id), str(scene_id), unique)
+            if scene_id is not None
+            else project_upload_key(str(project_id), unique)
         )
         stored = await storage.put_bytes(key, data, source.mime_type)
 

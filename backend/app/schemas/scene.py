@@ -4,10 +4,11 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from app.models.enums import Transition
 from app.schemas.common import ORMModel
+from app.schemas.scene_settings import validate_scene_settings
 
 
 class CaptionResponse(ORMModel):
@@ -43,6 +44,11 @@ class SceneCreateRequest(BaseModel):
     # Insert position (1-based). Omitted => appended to the end.
     scene_number: int | None = Field(default=None, ge=1)
 
+    @field_validator("settings")
+    @classmethod
+    def _check_settings(cls, value: dict[str, Any]) -> dict[str, Any]:
+        return validate_scene_settings(value)
+
 
 class SceneUpdateRequest(BaseModel):
     narration: str | None = Field(default=None, max_length=5000)
@@ -52,7 +58,17 @@ class SceneUpdateRequest(BaseModel):
     transition: Transition | None = None
     background_color: str | None = Field(default=None, max_length=16)
     language: str | None = Field(default=None, max_length=16)
+    # MERGED into the scene's settings (a key set to null is removed), so the
+    # editor can change one thing without resending the speech data.
     settings: dict[str, Any] | None = None
+    # Which uploaded or generated pictures/clips the scene uses; null removes it.
+    image_asset_id: uuid.UUID | None = None
+    video_asset_id: uuid.UUID | None = None
+
+    @field_validator("settings")
+    @classmethod
+    def _check_settings(cls, value: dict[str, Any] | None) -> dict[str, Any] | None:
+        return None if value is None else validate_scene_settings(value)
 
 
 class SceneReorderRequest(BaseModel):
@@ -78,9 +94,40 @@ class SceneResponse(ORMModel):
     image_url: str | None
     audio_url: str | None
     video_url: str | None
+    image_asset_id: uuid.UUID | None = None
+    video_asset_id: uuid.UUID | None = None
+    audio_asset_id: uuid.UUID | None = None
+    # Length of the uploaded clip, so the editor can limit trimming to it.
+    video_duration: float | None = None
     captions: list[CaptionResponse]
     created_at: datetime
     updated_at: datetime
+
+
+class CaptionsReplaceRequest(BaseModel):
+    """The scene's complete caption list, as edited by hand. Times are seconds
+    from the start of the scene."""
+
+    captions: list[CaptionInput] = Field(max_length=300)
+
+
+class SceneSplitRequest(BaseModel):
+    """Cut a scene in two at `at` seconds from its start."""
+
+    at: float = Field(gt=0)
+
+
+class SceneTrimRequest(BaseModel):
+    """Keep only [start, end] of the scene (seconds from its start)."""
+
+    start: float = Field(ge=0)
+    end: float = Field(gt=0)
+
+    @model_validator(mode="after")
+    def _ordered(self) -> "SceneTrimRequest":
+        if self.end <= self.start:
+            raise ValueError("end must be greater than start")
+        return self
 
 
 class ProjectDetailResponse(BaseModel):

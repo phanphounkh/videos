@@ -20,12 +20,43 @@ log = get_logger(__name__)
 
 async def render_project(ctx: dict[str, Any], job_id: str) -> str:
     """Render one project to MP4. Owner of the heavy lifting: RenderService."""
-    from app.services.render_service import RenderService
+    try:
+        from app.services.render_service import RenderService
+
+        factory = get_session_factory()
+        async with factory() as session:
+            await RenderService(session).execute_job(uuid.UUID(job_id))
+    except Exception as exc:
+        # RenderService records the failures it expects. Anything else (even
+        # failing to import it) would leave the job "queued" forever and the
+        # editor waiting on a worker that has already given up, so record it.
+        log.exception("render_task_crashed", job_id=job_id)
+        await _mark_render_failed(job_id, f"The render worker crashed: {exc}")
+        raise
+    return job_id
+
+
+async def _mark_render_failed(job_id: str, message: str) -> None:
+    """Fails an unfinished render job and frees its project. Deliberately
+    depends on nothing but the models, so it works when the rest does not."""
+    from datetime import UTC, datetime
+
+    from app.models.enums import RenderStatus
+    from app.models.project import Project
+    from app.models.render_job import RenderJob
 
     factory = get_session_factory()
     async with factory() as session:
-        await RenderService(session).execute_job(uuid.UUID(job_id))
-    return job_id
+        job = await session.get(RenderJob, uuid.UUID(job_id))
+        if job is None or job.status in {RenderStatus.COMPLETED, RenderStatus.FAILED}:
+            return
+        job.status = RenderStatus.FAILED
+        job.error_message = message[:2000]
+        job.completed_at = datetime.now(UTC)
+        project = await session.get(Project, job.project_id)
+        if project is not None and project.status == ProjectStatus.RENDERING:
+            project.status = ProjectStatus.READY
+        await session.commit()
 
 
 async def generate_scene_media(
@@ -96,3 +127,17 @@ async def generate_project_media(
 
     log.info("project_media_completed", **summary)
     return summary
+
+
+async def generate_thumbnail(ctx: dict[str, Any], project_id: str) -> str | None:
+    """Draw the project's cover image. Failing leaves the old cover (or none)."""
+    from app.services.thumbnail_service import ThumbnailService
+
+    factory = get_session_factory()
+    try:
+        async with factory() as session:
+            asset = await ThumbnailService(session).generate(uuid.UUID(project_id))
+    except Exception as exc:  # noqa: BLE001 - a cover must never fail the project
+        log.warning("thumbnail_failed", project_id=project_id, error=str(exc)[:300])
+        return None
+    return str(asset.id) if asset else None

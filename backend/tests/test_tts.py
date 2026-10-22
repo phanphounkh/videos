@@ -9,6 +9,7 @@ import pytest
 
 from app.core.config import get_settings
 from app.core.exceptions import ProviderError
+from app.services.ai.base import WordMark
 from app.services.ai.speech import get_tts_provider
 from app.services.ai.speech.edge_tts_provider import EdgeTTSProvider
 from app.services.ai.speech.silent_tts import SilentTTSProvider
@@ -51,8 +52,10 @@ async def test_duration_is_measured_from_the_audio_not_estimated(
     """A guessed duration drifts captions out of sync, so it must be measured."""
     provider = EdgeTTSProvider()
 
-    async def fake_synth(text: str, voice: str, rate: str, volume: str) -> bytes:
-        return b"ID3-fake-mp3-bytes"
+    async def fake_synth(
+        text: str, voice: str, rate: str, volume: str
+    ) -> tuple[bytes, list[WordMark]]:
+        return b"ID3-fake-mp3-bytes", [WordMark("hello", 0.1, 0.4), WordMark("there", 0.45, 0.8)]
 
     async def fake_probe(data: bytes) -> float:
         return 7.42
@@ -65,6 +68,7 @@ async def test_duration_is_measured_from_the_audio_not_estimated(
     assert result.is_placeholder is False
     assert result.provider == "edge-tts"
     assert result.voice == "en-US-AriaNeural"
+    assert [mark.text for mark in result.marks] == ["hello", "there"]
 
 
 async def test_synthesis_failure_becomes_a_provider_error(
@@ -72,7 +76,9 @@ async def test_synthesis_failure_becomes_a_provider_error(
 ) -> None:
     provider = EdgeTTSProvider()
 
-    async def boom(text: str, voice: str, rate: str, volume: str) -> bytes:
+    async def boom(
+        text: str, voice: str, rate: str, volume: str
+    ) -> tuple[bytes, list[WordMark]]:
         raise RuntimeError("network down")
 
     monkeypatch.setattr(provider, "_synthesize", boom)

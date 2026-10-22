@@ -8,7 +8,10 @@ const config = {
     // adapter-node builds a plain Node server, which is what we run in Docker.
     adapter: adapter(),
     alias: {
-      $lib: 'src/lib'
+      $lib: 'src/lib',
+      // The editor preview runs the renderer's own Remotion composition, so
+      // what you preview is exactly what gets exported.
+      $renderer: '../renderer/src'
     }
   }
 };

@@ -27,7 +27,9 @@ from app.models.voice_generation import VoiceGeneration
 from app.repositories.scene_repository import SceneRepository
 from app.schemas.generation import GeneratedScript, GenerateRequest
 from app.services.ai import ScriptRequest, get_image_provider, get_llm_provider, get_tts_provider
-from app.services.caption_service import CaptionService
+from app.services.ai.speech import align_marks
+from app.services.caption_service import SPEECH_SETTINGS_KEY, CaptionService
+from app.services.media import ENVELOPE_FPS, loudness_envelope
 from app.services.project_service import ProjectService
 from app.services.storage import get_storage, scene_image_key, scene_voice_key
 
@@ -67,6 +69,12 @@ class GenerationService:
             project.aspect_ratio = payload.aspect_ratio
         project.language = payload.language
         project.style = payload.style
+        if payload.purpose:
+            project.purpose = payload.purpose
+        if payload.presenter is not None:
+            project.presenter = payload.presenter
+        if payload.cta_text:
+            project.cta_text = payload.cta_text
         project.tone = payload.tone or project.tone
         project.audience = payload.audience or project.audience
         project.voice = payload.voice or project.voice
@@ -83,6 +91,8 @@ class GenerationService:
                     style=str(payload.style),
                     tone=payload.tone,
                     audience=payload.audience,
+                    purpose=str(project.purpose),
+                    presenter=project.presenter,
                 )
             )
         except ProviderError as exc:
@@ -130,7 +140,13 @@ class GenerationService:
                 duration=generated.duration,
                 transition=generated.transition,
                 language=script.language,
-                settings={},
+                # The story's own direction for the presenter: expression
+                # (mood) and voice (delivery). Read by the renderer and TTS.
+                settings={
+                    key: value
+                    for key, value in (("mood", generated.mood), ("delivery", generated.delivery))
+                    if value
+                },
             )
             self.session.add(scene)
             await self.session.flush()
@@ -148,17 +164,19 @@ class GenerationService:
         project = scene.project
         prompt = prompt_override or scene.visual_prompt or scene.narration[:300]
         if not prompt.strip():
-            return MediaOutcome(None, GenerationStatus.FAILED, "none",
-                                "This scene has no visual prompt to generate from.")
+            return MediaOutcome(
+                None,
+                GenerationStatus.FAILED,
+                "none",
+                "This scene has no visual prompt to generate from.",
+            )
 
         width, height = project.dimensions
         provider = get_image_provider()
         log.info("image_generation_started", scene_id=str(scene_id), provider=provider.name)
 
         try:
-            result = await provider.generate_image(
-                prompt, width, height, style=project.style
-            )
+            result = await provider.generate_image(prompt, width, height, style=project.style)
         except ProviderError as exc:
             log.warning("image_generation_failed", scene_id=str(scene_id), error=exc.message)
             return MediaOutcome(None, GenerationStatus.FAILED, provider.name, exc.message)
@@ -185,7 +203,8 @@ class GenerationService:
 
         message = (
             "Placeholder image (no AI image provider configured)."
-            if result.is_placeholder else None
+            if result.is_placeholder
+            else None
         )
         return MediaOutcome(asset, GenerationStatus.COMPLETED, result.provider, message)
 
@@ -197,8 +216,9 @@ class GenerationService:
         project = scene.project
         text = scene.narration.strip()
         if not text:
-            return MediaOutcome(None, GenerationStatus.FAILED, "none",
-                                "This scene has no narration to speak.")
+            return MediaOutcome(
+                None, GenerationStatus.FAILED, "none", "This scene has no narration to speak."
+            )
 
         language = scene.language or project.language
         voice = voice_override or project.voice or "default"
@@ -216,7 +236,9 @@ class GenerationService:
         await self.session.flush()
 
         try:
-            result = await provider.generate(text, language, voice)
+            result = await provider.generate(
+                text, language, voice, style=(scene.settings or {}).get("delivery")
+            )
         except ProviderError as exc:
             attempt.status = GenerationStatus.FAILED
             attempt.error_message = exc.message
@@ -250,6 +272,22 @@ class GenerationService:
         if abs(spoken - scene.duration) > 0.2:
             scene.duration = spoken
 
+        # What the renderer needs to follow the voice: when each word is heard
+        # (karaoke captions) and how loud each frame is (lip-sync). Tied to the
+        # narration it was made from, so an edited script falls back cleanly.
+        words = align_marks(text, [(m.text, m.start, m.end) for m in result.marks])
+        mouth = [] if result.is_placeholder else await loudness_envelope(result.data)
+        # A new dict, not an in-place edit: JSONB columns only notice reassignment.
+        scene.settings = {
+            **(scene.settings or {}),
+            SPEECH_SETTINGS_KEY: {
+                "narration": text,
+                "words": [[word, start, end] for word, start, end in words],
+                "mouth": mouth,
+                "fps": ENVELOPE_FPS,
+            },
+        }
+
         attempt.status = GenerationStatus.COMPLETED
         attempt.asset_id = asset.id
         attempt.duration = result.duration
@@ -265,7 +303,8 @@ class GenerationService:
 
         message = (
             "Silent placeholder audio (no TTS provider configured) - the video will have no speech."
-            if result.is_placeholder else None
+            if result.is_placeholder
+            else None
         )
         return MediaOutcome(asset, GenerationStatus.COMPLETED, result.provider, message)
 
@@ -276,9 +315,7 @@ class GenerationService:
         await self.session.commit()
         return count
 
-    async def _write_captions(
-        self, scene: Scene, duration: float, *, replace: bool = False
-    ) -> int:
+    async def _write_captions(self, scene: Scene, duration: float, *, replace: bool = False) -> int:
         # `replace` is kept for call-site readability; CaptionService always
         # rewrites, which is the only safe behaviour for derived data.
         del replace

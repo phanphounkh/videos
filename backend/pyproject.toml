@@ -1,7 +1,7 @@
 [project]
 name = "ai-video-studio-backend"
 version = "0.1.0"
-description = "AI Video Studio - FastAPI backend (API + background workers)"
+description = "Sorya - FastAPI backend (API + background workers)"
 requires-python = ">=3.13"
 dependencies = [
     "alembic>=1.20.0",

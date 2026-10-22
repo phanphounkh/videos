@@ -91,7 +91,9 @@ class FakeTTS(ai_base.TTSProvider):
     def supports_language(self, language: str) -> bool:
         return True
 
-    async def generate(self, text: str, language: str, voice: str) -> AudioResult:
+    async def generate(
+        self, text: str, language: str, voice: str, *, style: str | None = None
+    ) -> AudioResult:
         # Deliberately longer than the scene, to test duration reconciliation.
         return AudioResult(b"MP3DATA", "audio/mpeg", 6.25, self.name, voice)
 

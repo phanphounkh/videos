@@ -1,9 +1,10 @@
-# AI Video Studio
+# Sorya
 
-An AI video **composer**: type a prompt, and the system writes a script, splits it
-into scenes, generates a visual and narration per scene, builds timed captions and
-a timeline, then renders a final MP4 you can preview, edit scene by scene, and
-download.
+An AI video **composer** for product demos, social media posts, creator videos,
+explainers and stories: pick a purpose, type a prompt, and the system writes a
+script, splits it into scenes, generates a visual and narration per scene, builds
+timed captions and a timeline, then renders a final MP4 you can preview, edit scene
+by scene, and download.
 
 Built Khmer-capable from the ground up: UTF-8 everywhere, language metadata on
 project *and* scene, replaceable TTS/STT providers, Khmer-aware caption
@@ -20,6 +21,7 @@ editor UI and the video renderer.
 
 ## Contents
 
+- [Video purposes](#video-purposes)
 - [Architecture](#architecture)
 - [End-to-end flow](#end-to-end-flow)
 - [Repository layout](#repository-layout)
@@ -34,6 +36,56 @@ editor UI and the video renderer.
 - [Khmer support](#khmer-support)
 - [What is real and what is mocked](#what-is-real-and-what-is-mocked)
 - [Troubleshooting](#troubleshooting)
+
+---
+
+## Video purposes
+
+Every project has a **purpose** that decides how the script is written and how the
+video looks. The create form loads them from `GET /api/purposes` and preselects
+each purpose's aspect ratio, length, style, tone and audience.
+
+| Purpose | Default | Host | Closing button | Script rules |
+|---|---|---|---|---|
+| `story` | 9:16, 60 s | on | Follow | Hook, twist, payoff; one connected story |
+| `product_demo` | 16:9, 60 s | off | "Try it today" | Problem, benefits before features, **no invented features, prices or testimonials** |
+| `social_post` | 9:16, 30 s | off | Follow | Scroll-stopping first line, five-second scenes, one ask |
+| `creator` | 16:9, 3 min | on | "Subscribe" | First-person voice, segments, pattern interrupts, recap |
+| `explainer` | 16:9, 90 s | on | Follow | Simple to detailed, one idea per scene, only established facts |
+
+Per project you can also turn the animated host on or off (`presenter`; with it off
+the scene's picture fills the frame and the narration is a voice-over) and set a
+custom closing-button label (`cta_text`). The editor has a **Host** toggle.
+
+Adding a purpose is one entry in `backend/app/services/purposes.py` (plus the value
+in `VideoPurpose` and the renderer's `purpose` enum); the form, prompts and defaults
+follow from it.
+
+---
+
+## Editor
+
+The editor works on the scene model: each scene is a clip on the timeline.
+
+| Do this | How |
+|---|---|
+| Reorder scenes | drag a clip sideways on the Video track |
+| Trim or lengthen | drag a clip's left or right edge |
+| Split | move the playhead into a scene and press **S** (narration, captions, voice and an uploaded clip carry on across the cut) |
+| Text and stickers | **T Text** / **Sticker** in the toolbar, then drag, resize (corner dot) and rotate (top dot) on the preview; drag or trim their bars on the timeline to set when they appear |
+| Your own media | **Media** tab (or ⬆ Media) uploads pictures and clips; HEVC/phone video is converted to H.264 on upload |
+| Sound | **Audio** tab: voice volume, a clip's own sound, your own music track (volume, fades, ducking under speech) |
+| Captions | **Captions** tab: edit wording and timing, add one at the playhead, delete, or reset to auto. Click a caption bar on the timeline to jump to it. Your edits are kept when you change a scene's length; new narration, language or voice rebuilds them |
+| Undo / redo | **Ctrl+Z** / **Ctrl+Shift+Z**; the whole timeline is restored on the server |
+
+Shortcuts: Space play/pause, S split, Delete remove, Ctrl+D duplicate, ←/→ one frame
+(Shift: one second), Home/End, +/- zoom, Esc deselect.
+
+Everything the editor adds lives in `scene.settings` (validated in
+`backend/app/schemas/scene_settings.py`) and in the project's `music_asset_id` /
+`settings.music`, so existing projects keep working and the AI generator is unchanged.
+Split and trim are pure arithmetic in `backend/app/services/timeline_ops.py`; undo is
+`PUT /api/projects/{id}/scenes/timeline` with a snapshot.
 
 ---
 
@@ -108,15 +160,17 @@ POST /api/projects/{id}/generate
   → 202 {"project_id": ..., "status": "ready", "media_jobs_queued": 8}
 
 worker: per scene → ImageProvider → bytes → S3 → Asset row (key + metadata only)
-                  → TTSProvider   → bytes → S3 → Asset row
+                  → TTSProvider   → bytes + speech marks → S3 → Asset row
                   → scene duration grown to fit the audio
-                  → captions re-timed against the real audio length
+                  → speech marks + per-frame loudness saved in scene.settings
+                  → captions timed to the real speech marks
 
 POST /api/projects/{id}/render
   → RenderJob(queued) + Redis job → 202 {"job_id": ..., "status": "queued"}
 
 worker: builds a normalised composition payload (no DB access in the renderer)
       → Remotion renders frames → FFmpeg encodes H.264/AAC
+      → loudness normalised to -14 LUFS (video stream copied)
       → MP4 uploaded to S3, RenderJob → completed
 frontend polls GET /api/render-jobs/{id} → {"status":"rendering","progress":67}
       → preview + download
@@ -155,6 +209,8 @@ vid/
 │           ├── api/                one HTTP client + typed endpoint wrappers
 │           ├── stores/             auth state (runes)
 │           ├── types/              API types
+│           ├── remotion/           editor preview = the renderer's own composition
+│           │                       in @remotion/player (preview matches export)
 │           └── components/
 │               ├── editor/         VideoEditor, VideoPreview, SceneList, SceneCard,
 │               │                   PropertiesPanel, CaptionEditor, Timeline,
@@ -164,11 +220,15 @@ vid/
 ├── renderer/                   Remotion 4 composition + headless render CLI
 │   └── src/
 │       ├── Root.tsx                composition registration + calculateMetadata
-│       ├── VideoComposition.tsx    scenes laid onto the timeline
-│       ├── scenes/SceneView.tsx    one scene (image, Ken Burns, title, audio)
-│       ├── components/CaptionOverlay.tsx
+│       ├── VideoComposition.tsx    timeline, ducked music bed, sound effects, progress bar
+│       ├── scenes/SceneView.tsx    one scene: layout, camera, transitions, CTA
+│       ├── components/             Presenter (lip-synced host), CaptionOverlay (karaoke),
+│       │                           Backdrop, Sticker, FollowCta
+│       ├── story.ts                story beats, colours, shared sticker/CTA/speech timing
 │       ├── schema.ts               zod contract for the render payload
 │       └── render.ts               the CLI the worker shells out to
+│   ├── public/studio/              generated music bed + sound effects
+│   └── scripts/make_audio.py       regenerates them (standard library only)
 ├── infra/
 │   ├── worker.Dockerfile           Python + Node + Chromium + FFmpeg + Khmer fonts
 │   └── seaweedfs/s3.json           S3 identities (anonymous read for media)
@@ -301,10 +361,14 @@ Essentials:
 | `JWT_SECRET` | signing key — **must** be changed outside development |
 | `S3_ENDPOINT_URL` | endpoint the **backend** uses (`http://s3:8333` in Docker) |
 | `S3_PUBLIC_BASE_URL` | base URL the **browser and renderer** use (`http://localhost:9100`) |
-| `LLM_PROVIDER` | `openrouter` for prompt-following stories; `mock` only for offline tests |
+| `LLM_PROVIDER` | `gemini` or `openrouter` for prompt-following stories; `mock` only for offline tests |
 | `OPENROUTER_API_KEY` / `OPENROUTER_MODEL` | OpenRouter story generation (key required) |
-| `TTS_PROVIDER` | `edge` = real speech (no key, has Khmer) or `mock` = silence |
-| `TTS_RATE` / `TTS_VOLUME` | narration prosody, e.g. `-10%` to slow it down |
+| `GEMINI_API_KEY` | enables Gemini for story, voice and subtitle timing; empty = fall back to OpenRouter/Edge |
+| `GEMINI_MODEL` / `GEMINI_TTS_MODEL` | `gemini-3.8-flash` (story + alignment) / `gemini-3.8-flash-tts` (voice) |
+| `GEMINI_TTS_VOICE` | presenter voice, any Gemini prebuilt voice (`Puck`, `Kore`, `Charon`...) |
+| `GEMINI_REVIEW_SCRIPT` | second Gemini pass that proofreads generated Khmer scripts |
+| `TTS_PROVIDER` | `gemini` = Gemini TTS + aligned subtitles, `edge` = real speech (no key, has Khmer), or `mock` = silence |
+| `TTS_RATE` / `TTS_VOLUME` | narration prosody; `+10%` by default for brisk short-form pacing, e.g. `-10%` to slow it down |
 | `IMAGE_PROVIDER` | `mock` today |
 | `REMOTION_CONCURRENCY` | Chromium tabs per render; `1` on a low-memory host |
 | `RENDERER_DIR` | path to the Remotion project (`../renderer` on the host, `/renderer` in the worker image) |
@@ -358,6 +422,16 @@ Khmer is not a translation layer bolted on at the end; it changes real logic:
   "word", so caption segmentation breaks Khmer on punctuation (`។ ៕ ៖ ,`) and then
   on a character budget, and speech duration is estimated from Khmer **character**
   count rather than word count (`app/services/ai/speech/timing.py`).
+- **Gemini path (recommended for Khmer).** The story is written for the one
+  animated host, with a mood (drives the host's expression) and a voice
+  direction per scene, then proofread by a second Khmer-editor pass. Gemini TTS
+  reads each scene with its direction, and Gemini then listens to the audio and
+  timestamps each phrase of the exact script; answers that fail validation fall
+  back to estimated timing rather than wrong subtitles.
+- **Caption timing.** Edge TTS reports one speech mark per space-separated Khmer
+  phrase (per word in English). Captions follow those marks; long phrases are
+  split on cluster boundaries and share the phrase's time. The karaoke highlight
+  splits Khmer into words with `Intl.Segmenter`, never on spaces.
 - **Fonts.** Noto Sans Khmer is loaded in the editor UI and installed in the
   worker image; without it Khmer captions render as empty boxes in the MP4.
   Khmer also gets a taller line height in both the UI and the renderer.

@@ -2,9 +2,17 @@
  * Registers the compositions Remotion knows about.
  */
 import React from 'react';
-import { Composition, type CalculateMetadataFunction } from 'remotion';
+import { Composition, Still, type CalculateMetadataFunction } from 'remotion';
 import { VideoComposition, totalDurationInFrames } from './VideoComposition';
-import { compositionSchema, emptyComposition, type CompositionPayload } from './schema';
+import { ThumbnailView } from './components/ThumbnailView';
+import {
+  compositionSchema,
+  emptyComposition,
+  emptyThumbnail,
+  thumbnailSchema,
+  type CompositionPayload,
+  type ThumbnailPayload
+} from './schema';
 
 /**
  * Derives size/fps/duration from the payload at render time, so one composition
@@ -17,8 +25,23 @@ const calculateMetadata: CalculateMetadataFunction<CompositionPayload> = ({ prop
   height: props.project.height
 });
 
+const thumbnailMetadata: CalculateMetadataFunction<ThumbnailPayload> = ({ props }) => ({
+  width: props.project.width,
+  height: props.project.height
+});
+
 export const RemotionRoot: React.FC = () => {
   return (
+    <>
+    <Still
+      id="Thumbnail"
+      component={ThumbnailView}
+      schema={thumbnailSchema}
+      defaultProps={emptyThumbnail}
+      width={emptyThumbnail.project.width}
+      height={emptyThumbnail.project.height}
+      calculateMetadata={thumbnailMetadata}
+    />
     <Composition
       id="VideoComposition"
       component={VideoComposition}
@@ -30,5 +53,6 @@ export const RemotionRoot: React.FC = () => {
       height={emptyComposition.project.height}
       calculateMetadata={calculateMetadata}
     />
+    </>
   );
 };

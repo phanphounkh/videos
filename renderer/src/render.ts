@@ -12,11 +12,38 @@
  */
 import { bundle } from '@remotion/bundler';
 import { renderMedia, selectComposition } from '@remotion/renderer';
+import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { compositionSchema } from './schema';
 
 type Stage = 'preparing' | 'rendering' | 'completed' | 'failed';
+
+/**
+ * Brings the finished MP4 to the loudness short-video platforms expect.
+ *
+ * WHY: TikTok, Reels and Shorts turn loud uploads down but never turn quiet
+ * ones up, so an un-normalised video plays noticeably quieter than the ones
+ * around it in the feed. -14 LUFS integrated with -1.5 dBTP peaks is the common
+ * target. The video stream is copied, not re-encoded.
+ *
+ * Skipped (with a warning, never a failed render) when FFmpeg is unavailable.
+ */
+const normaliseLoudness = (file: string): void => {
+  const ffmpeg = process.env.FFMPEG_PATH ?? 'ffmpeg';
+  const temp = `${file}.loudnorm.mp4`;
+  const result = spawnSync(
+    ffmpeg,
+    ['-v', 'error', '-y', '-i', file, '-c:v', 'copy', '-af', 'loudnorm=I=-14:TP=-1.5:LRA=11', '-ar', '48000', '-c:a', 'aac', '-b:a', '192k', '-movflags', '+faststart', temp],
+    { stdio: ['ignore', 'ignore', 'pipe'] }
+  );
+  if (result.status === 0) {
+    fs.renameSync(temp, file);
+    return;
+  }
+  fs.rmSync(temp, { force: true });
+  process.stderr.write(`[warn] loudness normalisation skipped: ${result.error?.message ?? result.stderr?.toString().trim()}\n`);
+};
 
 const emit = (stage: Stage, progress: number, extra: Record<string, unknown> = {}): void => {
   process.stdout.write(`${JSON.stringify({ stage, progress, ...extra })}\n`);
@@ -37,6 +64,8 @@ async function main(): Promise<void> {
 
   const serveUrl = await bundle({
     entryPoint: path.resolve(import.meta.dirname, 'index.ts'),
+    // Music and sound effects. Explicit, so rendering works from any cwd.
+    publicDir: path.resolve(import.meta.dirname, '..', 'public'),
     onProgress: (p) => emit('preparing', Math.round(p * 0.1))
   });
 
@@ -88,6 +117,8 @@ async function main(): Promise<void> {
     timeoutInMilliseconds: frameTimeout,
     onProgress: ({ progress }) => emit('rendering', 10 + Math.round(progress * 85))
   });
+
+  normaliseLoudness(path.resolve(outputPath));
 
   emit('completed', 100, { output: path.resolve(outputPath) });
 }

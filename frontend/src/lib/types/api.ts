@@ -51,6 +51,75 @@ export type VideoStyle =
   | 'technology'
   | 'storytelling';
 
+export type VideoPurpose = 'story' | 'product_demo' | 'social_post' | 'creator' | 'explainer';
+
+/** A video purpose and the defaults the create form preselects (GET /api/purposes). */
+export interface PurposeTemplate {
+  key: VideoPurpose;
+  label: string;
+  description: string;
+  aspect_ratio: AspectRatio;
+  duration: number;
+  style: VideoStyle;
+  tone: string;
+  audience: string;
+  presenter: boolean;
+  cta_text: string | null;
+  example_prompt: string;
+}
+
+/** A text or sticker overlay. Times are seconds from the start of its scene. */
+export interface Layer {
+  id: string;
+  type: 'text' | 'sticker';
+  text: string;
+  /** Centre, % of frame width / height. */
+  x: number;
+  y: number;
+  /** % of the frame's short side. */
+  font_size: number;
+  rotation: number;
+  color: string;
+  background: string | null;
+  weight: number;
+  animation: 'none' | 'pop' | 'fade' | 'slide_up' | 'bounce';
+  start: number;
+  end: number;
+}
+
+export interface MusicSettings {
+  enabled: boolean;
+  volume: number;
+  fade_in: number;
+  fade_out: number;
+  duck: boolean;
+}
+
+export const DEFAULT_MUSIC: MusicSettings = {
+  enabled: true,
+  volume: 1,
+  fade_in: 0.4,
+  fade_out: 1,
+  duck: true
+};
+
+/** A file the user uploaded (GET /projects/{id}/assets). */
+export interface MediaAsset {
+  id: string;
+  project_id: string;
+  scene_id: string | null;
+  type: 'image' | 'video' | 'audio' | 'music';
+  source: string;
+  mime_type: string;
+  size_bytes: number;
+  duration: number | null;
+  width: number | null;
+  height: number | null;
+  original_filename: string | null;
+  url: string | null;
+  created_at: string;
+}
+
 export interface Project {
   id: string;
   title: string;
@@ -60,6 +129,9 @@ export interface Project {
   language: string;
   aspect_ratio: string;
   style: string;
+  purpose: VideoPurpose;
+  presenter: boolean;
+  cta_text: string | null;
   tone: string | null;
   audience: string | null;
   voice: string | null;
@@ -70,6 +142,11 @@ export interface Project {
   duration: number;
   scene_count: number;
   thumbnail_url: string | null;
+  music: MusicSettings;
+  music_asset_id: string | null;
+  music_url: string | null;
+  music_name: string | null;
+  music_duration: number | null;
   error_message: string | null;
   created_at: string;
   updated_at: string;
@@ -100,6 +177,11 @@ export interface Scene {
   image_url: string | null;
   audio_url: string | null;
   video_url: string | null;
+  image_asset_id: string | null;
+  video_asset_id: string | null;
+  audio_asset_id: string | null;
+  /** Length of the uploaded clip in seconds. */
+  video_duration: number | null;
   captions: Caption[];
   created_at: string;
   updated_at: string;
@@ -153,4 +235,25 @@ export interface SceneMedia {
   status: string;
   provider: string;
   message: string | null;
+}
+
+/** The whole timeline as one value: what undo and redo save and restore. */
+export interface TimelineSnapshot {
+  scenes: {
+    id: string;
+    narration: string;
+    visual_prompt: string | null;
+    on_screen_text: string | null;
+    duration: number;
+    transition: string;
+    background_color: string;
+    language: string | null;
+    settings: Record<string, unknown>;
+    image_asset_id: string | null;
+    video_asset_id: string | null;
+    audio_asset_id: string | null;
+    captions: { text: string; start_time: number; end_time: number; language: string }[];
+  }[];
+  music_asset_id: string | null;
+  music: MusicSettings;
 }

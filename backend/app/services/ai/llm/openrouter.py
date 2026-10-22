@@ -20,7 +20,7 @@ from app.core.logging import get_logger
 from app.schemas.generation import GeneratedScript
 from app.services.ai.base import LLMProvider, ScriptRequest
 from app.services.ai.llm.parsing import parse_script
-from app.services.ai.llm.prompts import SCRIPT_JSON_SCHEMA, SYSTEM_PROMPT, build_user_prompt
+from app.services.ai.llm.prompts import SCRIPT_JSON_SCHEMA, build_user_prompt, system_prompt
 
 log = get_logger(__name__)
 
@@ -50,7 +50,7 @@ class OpenRouterLLMProvider(LLMProvider):
             "Content-Type": "application/json",
             # OpenRouter asks for these for attribution; harmless if unused.
             "HTTP-Referer": "http://localhost:5173",
-            "X-Title": "Khmer Story Studio",
+            "X-Title": "Sorya",
         }
 
         last_error: str = "unknown error"
@@ -91,7 +91,10 @@ class OpenRouterLLMProvider(LLMProvider):
         return {
             "model": self._model,
             "messages": [
-                {"role": "system", "content": SYSTEM_PROMPT},
+                {
+                    "role": "system",
+                    "content": system_prompt(request.purpose, request.presenter, request.language),
+                },
                 {
                     "role": "user",
                     "content": build_user_prompt(
@@ -101,6 +104,8 @@ class OpenRouterLLMProvider(LLMProvider):
                         style=request.style,
                         tone=request.tone,
                         audience=request.audience,
+                        purpose=request.purpose,
+                        presenter=request.presenter,
                     ),
                 },
             ],
@@ -109,7 +114,7 @@ class OpenRouterLLMProvider(LLMProvider):
             "response_format": {
                 "type": "json_schema",
                 "json_schema": {
-                    "name": "khmer_entertainment_story",
+                    "name": "video_script",
                     "strict": True,
                     "schema": SCRIPT_JSON_SCHEMA,
                 },

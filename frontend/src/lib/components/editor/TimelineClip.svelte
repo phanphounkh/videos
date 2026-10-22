@@ -20,7 +20,7 @@
 
 <button
   class="absolute top-1 bottom-1 overflow-hidden rounded px-1.5 text-left text-[10px] whitespace-nowrap text-white/90 {tone} {selected
-    ? 'ring-2 ring-indigo-400'
+    ? 'ring-2 ring-sun-400'
     : ''}"
   style={`left:${left}%; width:${width}%`}
   {title}

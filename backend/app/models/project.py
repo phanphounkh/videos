@@ -1,14 +1,15 @@
 """Project: one video and everything that belongs to it."""
 
 import uuid
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
-from sqlalchemy import ForeignKey, Integer, String, Text
+from sqlalchemy import Boolean, ForeignKey, Integer, String, Text
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, TimestampMixin, UUIDPrimaryKeyMixin
-from app.models.enums import AspectRatio, ProjectStatus, VideoStyle
+from app.models.enums import AspectRatio, ProjectStatus, VideoPurpose, VideoStyle
 
 if TYPE_CHECKING:
     from app.models.asset import Asset
@@ -42,6 +43,16 @@ class Project(Base, UUIDPrimaryKeyMixin, TimestampMixin):
         String(16), default=AspectRatio.PORTRAIT, nullable=False
     )
     style: Mapped[str] = mapped_column(String(32), default=VideoStyle.SOCIAL_MEDIA, nullable=False)
+    # What the video is for (story, product demo, ...): drives script, layout, CTA.
+    purpose: Mapped[str] = mapped_column(
+        String(32), default=VideoPurpose.STORY, server_default="story", nullable=False
+    )
+    # Whether the animated host appears on screen.
+    presenter: Mapped[bool] = mapped_column(
+        Boolean, default=True, server_default="true", nullable=False
+    )
+    # Closing call-to-action button label; null keeps the classic "Follow" button.
+    cta_text: Mapped[str | None] = mapped_column(String(60), nullable=True)
     tone: Mapped[str | None] = mapped_column(String(64), nullable=True)
     audience: Mapped[str | None] = mapped_column(String(128), nullable=True)
     voice: Mapped[str | None] = mapped_column(String(64), nullable=True)
@@ -55,9 +66,27 @@ class Project(Base, UUIDPrimaryKeyMixin, TimestampMixin):
         ForeignKey("assets.id", ondelete="SET NULL", use_alter=True),
         nullable=True,
     )
+    # The background music track the user uploaded; null plays the built-in bed.
+    music_asset_id: Mapped[uuid.UUID | None] = mapped_column(
+        PGUUID(as_uuid=True),
+        ForeignKey("assets.id", ondelete="SET NULL", use_alter=True),
+        nullable=True,
+    )
+    # Editor-owned project settings; today only `music` (see schemas.project.MusicSettings).
+    settings: Mapped[dict[str, Any]] = mapped_column(
+        JSONB, default=dict, server_default="{}", nullable=False
+    )
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     owner: Mapped["User"] = relationship(back_populates="projects")
+    # Read-only: the id above is what gets written (it closes a reference cycle
+    # with assets, so SQLAlchemy must not try to order the two inserts itself).
+    thumbnail_asset: Mapped["Asset | None"] = relationship(
+        foreign_keys=[thumbnail_asset_id], viewonly=True, lazy="selectin"
+    )
+    music_asset: Mapped["Asset | None"] = relationship(
+        foreign_keys=[music_asset_id], viewonly=True, lazy="selectin"
+    )
     scenes: Mapped[list["Scene"]] = relationship(
         back_populates="project",
         cascade="all, delete-orphan",

@@ -3,22 +3,25 @@
 
   let { status }: { status: ProjectStatus | RenderStatus | string } = $props();
 
-  const tone: Record<string, string> = {
-    draft: 'bg-slate-700/60 text-slate-200',
-    generating: 'bg-amber-500/20 text-amber-300',
-    ready: 'bg-emerald-500/20 text-emerald-300',
-    rendering: 'bg-indigo-500/20 text-indigo-300',
-    uploading: 'bg-indigo-500/20 text-indigo-300',
-    preparing: 'bg-indigo-500/20 text-indigo-300',
-    queued: 'bg-slate-600/50 text-slate-200',
-    completed: 'bg-emerald-500/20 text-emerald-300',
-    failed: 'bg-red-500/20 text-red-300'
+  // dot colour + text colour; working states pulse.
+  const tone: Record<string, [string, string]> = {
+    draft: ['bg-slate-500', 'text-slate-300'],
+    generating: ['bg-sun-400', 'text-sun-200'],
+    ready: ['bg-emerald-400', 'text-emerald-300'],
+    rendering: ['bg-sun-400', 'text-sun-200'],
+    uploading: ['bg-sun-400', 'text-sun-200'],
+    preparing: ['bg-sun-400', 'text-sun-200'],
+    queued: ['bg-slate-400', 'text-slate-300'],
+    completed: ['bg-emerald-400', 'text-emerald-300'],
+    failed: ['bg-red-400', 'text-red-300']
   };
+  const working = $derived(['generating', 'rendering', 'uploading', 'preparing'].includes(status));
+  const [dot, text] = $derived(tone[status] ?? ['bg-slate-500', 'text-slate-300']);
 </script>
 
 <span
-  class="rounded-full px-2 py-0.5 text-xs font-medium capitalize {tone[status] ??
-    'bg-slate-700/60 text-slate-200'}"
+  class="inline-flex items-center gap-1.5 rounded-full bg-slate-800/80 px-2.5 py-1 text-xs font-medium capitalize {text}"
 >
+  <span class="h-1.5 w-1.5 rounded-full {dot} {working ? 'animate-pulse' : ''}"></span>
   {status.replace('_', ' ')}
 </span>

@@ -73,9 +73,12 @@ def database(test_database_url: str) -> AsyncIterator[str]:
     )
 
     # Point the application at the test database for the whole session, and
-    # force the silent TTS provider so no test can reach the network.
+    # force offline providers so no test can reach the network or spend a
+    # real API quota (a developer's .env may hold live keys).
     os.environ["DATABASE_URL"] = test_database_url
     os.environ["TTS_PROVIDER"] = "mock"
+    os.environ["LLM_PROVIDER"] = "mock"
+    os.environ["GEMINI_API_KEY"] = ""
     get_settings.cache_clear()
 
     yield test_database_url
@@ -124,3 +127,13 @@ async def project(auth_client: AsyncClient) -> dict:
     )
     assert response.status_code == 201, response.text
     return response.json()
+
+
+@pytest.fixture(autouse=True)
+def _no_background_thumbnails(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Generating a script queues a cover; tests must not touch the real queue."""
+
+    async def _skip(*args: object, **kwargs: object) -> None:
+        return None
+
+    monkeypatch.setattr("app.api.routes.generation.enqueue", _skip)

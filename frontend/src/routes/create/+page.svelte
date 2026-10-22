@@ -1,8 +1,9 @@
 <script lang="ts">
   import { goto } from '$app/navigation';
   import { api } from '$lib/api';
-  import PromptDialog from '$lib/components/projects/PromptDialog.svelte';
+  import PromptDialog, { type CreateValue } from '$lib/components/projects/PromptDialog.svelte';
   import { auth } from '$lib/stores/auth.svelte';
+  import type { Project } from '$lib/types/api';
 
   let busy = $state(false);
   let error = $state<unknown>(null);
@@ -11,15 +12,7 @@
     if (auth.ready && !auth.user) void goto('/login', { replaceState: true });
   });
 
-  async function create(value: {
-    prompt: string;
-    duration: number;
-    language: string;
-    style: string;
-    aspect_ratio: string;
-    tone: string;
-    audience: string;
-  }) {
+  async function create(value: CreateValue) {
     busy = true;
     error = null;
     try {
@@ -31,6 +24,9 @@
         aspect_ratio: value.aspect_ratio,
         style: value.style,
         target_duration: value.duration,
+        purpose: value.purpose as Project['purpose'],
+        presenter: value.presenter,
+        cta_text: value.cta_text,
         tone: value.tone,
         audience: value.audience
       });
@@ -44,6 +40,6 @@
   }
 </script>
 
-<main class="mx-auto flex max-w-3xl flex-col gap-6 px-6 py-10">
+<main class="mx-auto max-w-6xl px-4 py-8 sm:px-6 lg:py-10">
   <PromptDialog {busy} {error} onsubmit={create} />
 </main>

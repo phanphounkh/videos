@@ -8,7 +8,7 @@ place keeps routes and services free of presentation logic.
 
 from app.models.project import Project
 from app.models.scene import Scene
-from app.schemas.project import ProjectResponse
+from app.schemas.project import MusicSettings, ProjectResponse
 from app.schemas.scene import CaptionResponse, SceneResponse
 from app.services.storage.urls import public_url
 
@@ -19,10 +19,13 @@ def project_to_response(project: Project) -> ProjectResponse:
 
     # Prefer an explicit thumbnail; otherwise fall back to the first scene image
     # so a freshly generated project still shows a picture on its card.
-    for scene in project.scenes:
-        if scene.image_asset is not None:
-            thumbnail_key = scene.image_asset.storage_key
-            break
+    if project.thumbnail_asset is not None:
+        thumbnail_key = project.thumbnail_asset.storage_key
+    else:
+        for scene in project.scenes:
+            if scene.image_asset is not None:
+                thumbnail_key = scene.image_asset.storage_key
+                break
 
     return ProjectResponse(
         id=project.id,
@@ -33,6 +36,9 @@ def project_to_response(project: Project) -> ProjectResponse:
         language=project.language,
         aspect_ratio=project.aspect_ratio,
         style=project.style,
+        purpose=project.purpose,
+        presenter=project.presenter,
+        cta_text=project.cta_text,
         tone=project.tone,
         audience=project.audience,
         voice=project.voice,
@@ -43,6 +49,11 @@ def project_to_response(project: Project) -> ProjectResponse:
         duration=project.duration,
         scene_count=len(project.scenes),
         thumbnail_url=public_url(thumbnail_key),
+        music=MusicSettings.model_validate((project.settings or {}).get("music") or {}),
+        music_asset_id=project.music_asset_id,
+        music_url=public_url(project.music_asset.storage_key if project.music_asset else None),
+        music_name=project.music_asset.original_filename if project.music_asset else None,
+        music_duration=project.music_asset.duration if project.music_asset else None,
         error_message=project.error_message,
         created_at=project.created_at,
         updated_at=project.updated_at,
@@ -66,6 +77,10 @@ def scene_to_response(scene: Scene, start_time: float = 0.0) -> SceneResponse:
         image_url=public_url(scene.image_asset.storage_key if scene.image_asset else None),
         audio_url=public_url(scene.audio_asset.storage_key if scene.audio_asset else None),
         video_url=public_url(scene.video_asset.storage_key if scene.video_asset else None),
+        image_asset_id=scene.image_asset_id,
+        video_asset_id=scene.video_asset_id,
+        audio_asset_id=scene.audio_asset_id,
+        video_duration=scene.video_asset.duration if scene.video_asset else None,
         captions=[CaptionResponse.model_validate(c) for c in scene.captions],
         created_at=scene.created_at,
         updated_at=scene.updated_at,

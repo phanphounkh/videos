@@ -16,7 +16,12 @@ from app.core.database import dispose_engine
 from app.core.logging import configure_logging, get_logger
 from app.services.queue import redis_settings
 from app.services.storage import get_storage
-from app.workers.tasks import generate_project_media, generate_scene_media, render_project
+from app.workers.tasks import (
+    generate_project_media,
+    generate_scene_media,
+    generate_thumbnail,
+    render_project,
+)
 
 log = get_logger(__name__)
 
@@ -35,7 +40,7 @@ async def shutdown(ctx: dict[str, Any]) -> None:
 
 
 class WorkerSettings:
-    functions = [render_project, generate_scene_media, generate_project_media]
+    functions = [render_project, generate_scene_media, generate_project_media, generate_thumbnail]
     on_startup = startup
     on_shutdown = shutdown
     redis_settings = redis_settings()

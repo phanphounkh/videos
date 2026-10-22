@@ -18,10 +18,19 @@
 		"@sveltejs/vite-plugin-svelte": "^7.1.2",
 		"@tailwindcss/vite": "^4.3.3",
 		"@types/node": "^26.6.4",
+		"@types/react": "19.2.2",
+		"@types/react-dom": "19.2.2",
 		"svelte": "^5.56.1",
 		"svelte-check": "^4.6.0",
 		"tailwindcss": "^4.3.3",
 		"typescript": "^6.0.3",
 		"vite": "^8.0.16"
+	},
+	"dependencies": {
+		"@remotion/player": "4.0.534",
+		"react": "19.2.0",
+		"react-dom": "19.2.0",
+		"remotion": "4.0.534",
+		"zod": "4.5.4"
 	}
 }

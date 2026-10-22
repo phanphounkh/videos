@@ -21,6 +21,9 @@ class ScriptRequest:
     style: str
     tone: str | None = None
     audience: str | None = None
+    purpose: str = "story"
+    # Whether an animated host appears; without one the narration is a voice-over.
+    presenter: bool = True
 
 
 @dataclass(slots=True)
@@ -35,6 +38,15 @@ class ImageResult:
 
 
 @dataclass(slots=True)
+class WordMark:
+    """When one spoken unit (an English word, a Khmer phrase) is heard, in seconds."""
+
+    text: str
+    start: float
+    end: float
+
+
+@dataclass(slots=True)
 class AudioResult:
     data: bytes
     mime_type: str
@@ -42,6 +54,9 @@ class AudioResult:
     provider: str
     voice: str
     is_placeholder: bool = False
+    # Speech marks reported by the provider. Empty when it gives none, in which
+    # case captions fall back to estimated timings.
+    marks: list[WordMark] = field(default_factory=list)
 
 
 @dataclass(slots=True)
@@ -79,7 +94,11 @@ class TTSProvider(ABC):
     name: str
 
     @abstractmethod
-    async def generate(self, text: str, language: str, voice: str) -> AudioResult: ...
+    async def generate(
+        self, text: str, language: str, voice: str, *, style: str | None = None
+    ) -> AudioResult:
+        """`style` is an optional delivery direction ("whispering, tense").
+        Providers that cannot act on it ignore it."""
 
     @abstractmethod
     def supports_language(self, language: str) -> bool: ...

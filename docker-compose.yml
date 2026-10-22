@@ -1,5 +1,5 @@
 # =============================================================================
-# AI Video Studio - local stack
+# Sorya - local stack
 #
 # Host ports are deliberately offset (5435/6381/9100/8010/5174) so this stack
 # never collides with other projects already running on this machine.
@@ -147,8 +147,9 @@ services:
 
   frontend:
     build:
-      context: ./frontend
-      dockerfile: Dockerfile
+      # Repo root: the editor preview shares the renderer's composition.
+      context: .
+      dockerfile: frontend/Dockerfile
       args:
         # Baked at build time; the SSR server proxies /api to the backend.
         BACKEND_URL: http://backend:8000

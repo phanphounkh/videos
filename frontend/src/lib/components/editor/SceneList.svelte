@@ -1,6 +1,6 @@
 <script lang="ts">
-  import Button from '$lib/components/ui/Button.svelte';
   import SceneCard from '$lib/components/editor/SceneCard.svelte';
+  import Button from '$lib/components/ui/Button.svelte';
   import type { Scene } from '$lib/types/api';
 
   let {
@@ -27,15 +27,13 @@
   }
 </script>
 
-<aside class="flex w-full flex-col gap-2 lg:w-72">
+<div class="flex flex-col gap-3">
   <div class="flex items-center justify-between">
-    <h3 class="text-xs font-semibold tracking-wide text-slate-400 uppercase">
-      Scenes ({scenes.length})
-    </h3>
-    <Button variant="ghost" onclick={onadd}>+ Add</Button>
+    <h3 class="section-title">{scenes.length} {scenes.length === 1 ? 'scene' : 'scenes'}</h3>
+    <Button variant="secondary" size="sm" icon="plus" onclick={onadd}>Add scene</Button>
   </div>
 
-  <div class="flex max-h-[60vh] flex-col gap-2 overflow-y-auto pr-1">
+  <div class="flex flex-col gap-2">
     {#each scenes as scene (scene.id)}
       <SceneCard
         {scene}
@@ -46,9 +44,9 @@
       />
     {/each}
     {#if !scenes.length}
-      <p class="rounded-lg border border-dashed border-slate-800 p-4 text-sm text-slate-500">
-        No scenes yet. Generate a video or add a scene manually.
+      <p class="rounded-xl border border-dashed border-slate-800 p-5 text-center text-sm text-slate-500">
+        No scenes yet. Generate a video or add a scene.
       </p>
     {/if}
   </div>
-</aside>
+</div>

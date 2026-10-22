@@ -12,9 +12,33 @@ from typing import Any
 
 from app.core.logging import get_logger
 from app.models.project import Project
+from app.schemas.project import MusicSettings
+from app.services.caption_service import speech_settings
 from app.services.storage.urls import renderer_url
 
 log = get_logger(__name__)
+
+
+def _layers(settings: dict[str, Any]) -> list[dict[str, Any]]:
+    """Editor overlay layers in the renderer's camelCase."""
+    return [
+        {
+            "id": layer["id"],
+            "type": layer["type"],
+            "text": layer["text"],
+            "x": layer["x"],
+            "y": layer["y"],
+            "fontSize": layer["font_size"],
+            "rotation": layer["rotation"],
+            "color": layer["color"],
+            "background": layer["background"],
+            "weight": layer["weight"],
+            "animation": layer["animation"],
+            "start": layer["start"],
+            "end": layer["end"],
+        }
+        for layer in settings.get("layers") or []
+    ]
 
 
 def build_composition_payload(project: Project) -> dict[str, Any]:
@@ -30,6 +54,8 @@ def build_composition_payload(project: Project) -> dict[str, Any]:
         if scene.video_asset is not None:
             visual_url = renderer_url(scene.video_asset.storage_key)
             visual_type = "video"
+
+        speech = speech_settings(scene) or {}
 
         scenes.append(
             {
@@ -53,9 +79,31 @@ def build_composition_payload(project: Project) -> dict[str, Any]:
                 ],
                 "transition": scene.transition,
                 "backgroundColor": scene.background_color,
+                # Real speech timing and loudness, when the voice was generated
+                # from the current narration. Empty lists make the renderer fall
+                # back to estimated karaoke timing and a generic talking loop.
+                "words": [
+                    {"text": text, "start": float(start), "end": float(end)}
+                    for text, start, end in speech.get("words", [])
+                ],
+                "mouth": list(speech.get("mouth", [])),
+                "mouthFps": int(speech.get("fps", 30)),
+                # The story's emotional beat; null lets the renderer derive it
+                # from the scene's position in the video.
+                "mood": (scene.settings or {}).get("mood"),
+                # Editor settings: overlays, sound levels, and where in the voice
+                # and the uploaded clip this scene starts (after a split or trim).
+                "layers": _layers(scene.settings or {}),
+                "audioStart": float((scene.settings or {}).get("audio_start", 0)),
+                "voiceVolume": float((scene.settings or {}).get("voice_volume", 1)),
+                "clipVolume": float((scene.settings or {}).get("clip_volume", 0)),
+                "trimStart": float((scene.settings or {}).get("trim_start", 0)),
+                "mediaFit": (scene.settings or {}).get("media_fit", "cover"),
+                "kenBurns": bool((scene.settings or {}).get("ken_burns", True)),
             }
         )
 
+    music = MusicSettings.model_validate((project.settings or {}).get("music") or {})
     payload = {
         "project": {
             "width": width,
@@ -63,6 +111,18 @@ def build_composition_payload(project: Project) -> dict[str, Any]:
             "fps": project.fps,
             "title": project.title,
             "language": project.language,
+            "purpose": project.purpose,
+            "presenter": project.presenter,
+            "ctaText": project.cta_text,
+            "music": music.enabled,
+            # None plays the renderer's built-in bed.
+            "musicUrl": (
+                renderer_url(project.music_asset.storage_key) if project.music_asset else None
+            ),
+            "musicVolume": music.volume,
+            "musicFadeIn": music.fade_in,
+            "musicFadeOut": music.fade_out,
+            "musicDuck": music.duck,
         },
         "scenes": scenes,
     }

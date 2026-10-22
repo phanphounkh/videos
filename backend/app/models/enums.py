@@ -41,6 +41,16 @@ class VideoStyle(StrEnum):
     STORYTELLING = "storytelling"
 
 
+class VideoPurpose(StrEnum):
+    """What the video is for. Picks the script structure, layout and defaults."""
+
+    STORY = "story"
+    PRODUCT_DEMO = "product_demo"
+    SOCIAL_POST = "social_post"
+    CREATOR = "creator"
+    EXPLAINER = "explainer"
+
+
 class AssetType(StrEnum):
     IMAGE = "image"
     VIDEO = "video"

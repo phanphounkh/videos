@@ -44,7 +44,7 @@ def create_app() -> FastAPI:
     app = FastAPI(
         title=settings.app_name,
         version="0.1.0",
-        description="Khmer Story Studio API - prompt to animated social video.",
+        description="Sorya API - prompt to finished video for any purpose.",
         docs_url="/docs",
         openapi_url="/openapi.json",
         lifespan=lifespan,

@@ -1,161 +1,252 @@
 <script lang="ts">
-  /** Presenter-led editor preview with timed emphasis text and narration. */
-  import EducationalAvatar from '$lib/components/editor/EducationalAvatar.svelte';
-  import type { Scene } from '$lib/types/api';
+  /**
+   * Editor preview. Runs the renderer's real Remotion composition (see
+   * $lib/remotion/player.tsx), so what plays here is exactly what exports:
+   * presenter, lip-sync, karaoke captions, music and sound effects.
+   */
+  import { onMount } from 'svelte';
+  import CanvasOverlay from '$lib/components/editor/CanvasOverlay.svelte';
+  import Icon from '$lib/components/ui/Icon.svelte';
+  import { layersOf } from '$lib/editor/layers';
+  import { buildPayload } from '$lib/remotion/payload';
+  import type { PreviewController } from '$lib/remotion/player';
+  import type { Layer, Project, Scene } from '$lib/types/api';
 
-  type StoryPhase = 'hook' | 'setup' | 'rising' | 'twist' | 'climax' | 'payoff';
-  const phaseThemes: Record<StoryPhase, { label: string; base: string; glow: string; accent: string }> = {
-    hook: { label: 'HOOK', base: '#2a0b12', glow: '#f97316', accent: '#fb923c' },
-    setup: { label: 'SETUP', base: '#10172f', glow: '#3b82f6', accent: '#60a5fa' },
-    rising: { label: 'RISING ACTION', base: '#062d2b', glow: '#14b8a6', accent: '#2dd4bf' },
-    twist: { label: 'TWIST', base: '#2e1065', glow: '#a855f7', accent: '#c084fc' },
-    climax: { label: 'CLIMAX', base: '#3f0a0a', glow: '#ef4444', accent: '#fb7185' },
-    payoff: { label: 'PAYOFF', base: '#392008', glow: '#f59e0b', accent: '#fbbf24' }
+  const SIZES: Record<string, [number, number]> = {
+    '9:16': [1080, 1920],
+    '1:1': [1080, 1080],
+    '16:9': [1920, 1080]
   };
-
-  function storyPhase(sceneNumber: number, sceneCount: number): StoryPhase {
-    if (sceneNumber <= 1) return 'hook';
-    const progress = (sceneNumber - 1) / Math.max(1, sceneCount - 1);
-    if (progress < 0.28) return 'setup';
-    if (progress < 0.58) return 'rising';
-    if (progress < 0.76) return 'twist';
-    if (progress < 0.92) return 'climax';
-    return 'payoff';
-  }
 
   let {
     scenes,
-    projectTitle = 'Khmer Story Studio',
+    projectTitle = 'Sorya',
     aspectRatio = '16:9',
     language = 'km',
+    purpose = 'story',
+    presenter = true,
+    ctaText = null,
+    music = undefined,
+    musicUrl = null,
+    fps = 30,
+    width = undefined,
+    height = undefined,
     time = $bindable(0),
-    selectedId = $bindable<string | null>(null)
+    playing = $bindable(false),
+    selectedId = $bindable<string | null>(null),
+    selectedLayerId = $bindable<string | null>(null),
+    onlayercommit,
+    onlayeredit
   }: {
     scenes: Scene[];
     projectTitle?: string;
     aspectRatio?: string;
     language?: string;
+    purpose?: Project['purpose'];
+    presenter?: boolean;
+    ctaText?: string | null;
+    music?: Project['music'];
+    musicUrl?: string | null;
+    fps?: number;
+    width?: number;
+    height?: number;
     time?: number;
+    playing?: boolean;
     selectedId?: string | null;
+    selectedLayerId?: string | null;
+    onlayercommit: (sceneId: string, layerId: string, patch: Partial<Layer>) => void;
+    onlayeredit: (layerId: string) => void;
   } = $props();
 
-  let playing = $state(false);
-  let audio: HTMLAudioElement | null = null;
-  let raf = 0;
-  let lastTick = 0;
+  let host: HTMLDivElement;
+  let controller: PreviewController | null = null;
 
+  /** Play or pause (the editor's Space key). */
+  export function toggle() {
+    controller?.toggle();
+  }
+  // Last frame reported by the player, so seeks we caused are not echoed back.
+  let reportedFrame = -1;
+
+  const size = $derived(width && height ? [width, height] : (SIZES[aspectRatio] ?? SIZES['16:9']));
   const total = $derived(scenes.reduce((sum, scene) => sum + scene.duration, 0));
-  const current = $derived(
-    scenes.find((scene) => time >= scene.start_time && time < scene.start_time + scene.duration) ?? scenes.at(-1) ?? null
+  const clock = (seconds: number): string => {
+    const whole = Math.max(0, seconds);
+    const m = Math.floor(whole / 60);
+    return `${m}:${(whole - m * 60).toFixed(1).padStart(4, '0')}`;
+  };
+  // A layer being dragged on the canvas: shown live in the player before it is saved.
+  let draft = $state<{ layerId: string; patch: Partial<Layer> } | null>(null);
+
+  const shown = $derived(
+    draft
+      ? scenes.map((scene) => {
+          const layers = layersOf(scene);
+          if (!layers.some((layer) => layer.id === draft!.layerId)) return scene;
+          return {
+            ...scene,
+            settings: {
+              ...scene.settings,
+              layers: layers.map((layer) =>
+                layer.id === draft!.layerId ? { ...layer, ...draft!.patch } : layer
+              )
+            }
+          };
+        })
+      : scenes
   );
-  const localTime = $derived(current ? time - current.start_time : 0);
-  const caption = $derived(current?.captions.find((c) => localTime >= c.start_time && localTime < c.end_time) ?? null);
-  const isKhmer = $derived((current?.language ?? language).startsWith('km'));
-  const portrait = $derived(aspectRatio === '9:16');
-  const phase = $derived(current ? storyPhase(current.scene_number, scenes.length) : 'hook');
-  const theme = $derived(phaseThemes[phase]);
-  const mirror = $derived(!portrait && !!current && current.scene_number % 2 === 0);
-  const ratioClass = $derived(aspectRatio === '9:16' ? 'aspect-[9/16] max-h-[70vh]' : aspectRatio === '1:1' ? 'aspect-square' : 'aspect-video');
-  const popupStart = $derived(current ? Math.min(0.8, current.duration * 0.18) : 0);
-  const popupEnd = $derived(current ? Math.min(current.duration - 0.2, popupStart + 4.5) : 0);
-  const popupOpacity = $derived(
-    !current?.on_screen_text || localTime < popupStart || localTime > popupEnd
-      ? 0
-      : Math.min(1, (localTime - popupStart) / 0.25, (popupEnd - localTime) / 0.3)
-  );
-  const popupScale = $derived(0.78 + 0.22 * Math.min(1, Math.max(0, (localTime - popupStart) / 0.32)));
 
-  function tick(now: number) {
-    if (!playing) return;
-    const delta = (now - lastTick) / 1000;
-    lastTick = now;
-    time = Math.min(time + delta, total);
-    if (time >= total) playing = false;
-    else raf = requestAnimationFrame(tick);
-  }
-
-  function togglePlay() {
-    playing = !playing;
-    if (playing) {
-      lastTick = performance.now();
-      raf = requestAnimationFrame(tick);
-    } else {
-      cancelAnimationFrame(raf);
-      audio?.pause();
+  const built = $derived.by(() => {
+    if (!shown.length) return { payload: null, error: null };
+    try {
+      return {
+        payload: buildPayload(
+          {
+            title: projectTitle,
+            language,
+            fps,
+            width: size[0],
+            height: size[1],
+            purpose,
+            presenter,
+            cta_text: ctaText,
+            music,
+            music_url: musicUrl
+          },
+          shown
+        ),
+        error: null
+      };
+    } catch (e) {
+      return { payload: null, error: e instanceof Error ? e.message : String(e) };
     }
-  }
-
-  $effect(() => {
-    if (!current?.audio_url) {
-      audio?.pause();
-      return;
-    }
-    if (!audio || audio.dataset.sceneId !== current.id) {
-      audio?.pause();
-      audio = new Audio(current.audio_url);
-      audio.dataset.sceneId = current.id;
-    }
-    if (playing) {
-      if (Math.abs(audio.currentTime - localTime) > 0.35) audio.currentTime = localTime;
-      void audio.play().catch(() => undefined);
-    } else audio.pause();
   });
 
+  // The scene under the playhead, and which of its layers are on screen now.
+  const current = $derived.by(() => {
+    let cursor = 0;
+    for (const scene of [...scenes].sort((a, b) => a.scene_number - b.scene_number)) {
+      if (time < cursor + scene.duration) return { scene, at: time - cursor };
+      cursor += scene.duration;
+    }
+    return null;
+  });
+  const activeLayers = $derived(
+    current
+      ? layersOf(current.scene).filter((l) => current.at >= l.start && current.at < l.end)
+      : []
+  );
+
+  /** The scene under the playhead, by cumulative duration. */
+  function sceneAt(seconds: number): Scene | null {
+    let cursor = 0;
+    for (const scene of [...scenes].sort((a, b) => a.scene_number - b.scene_number)) {
+      cursor += scene.duration;
+      if (seconds < cursor) return scene;
+    }
+    return scenes.at(-1) ?? null;
+  }
+
+  let mountPreview = $state<typeof import('$lib/remotion/player').mountPreview | null>(null);
+
+  onMount(() => {
+    // React and Remotion load only in the browser, and only for the editor.
+    void import('$lib/remotion/player').then((module) => (mountPreview = module.mountPreview));
+    return () => {
+      controller?.destroy();
+      controller = null;
+    };
+  });
+
+  // Mount once there is something to play, then feed it every edit.
   $effect(() => {
-    if (current && selectedId !== current.id && playing) selectedId = current.id;
+    const payload = built.payload;
+    if (!payload || !mountPreview) return;
+    if (controller) {
+      controller.update(payload);
+      return;
+    }
+    controller = mountPreview(host, payload, {
+      onFrame: (frame) => {
+        reportedFrame = frame;
+        time = frame / fps;
+        const current = sceneAt(time);
+        if (playing && current && current.id !== selectedId) selectedId = current.id;
+      },
+      onPlaying: (value) => (playing = value)
+    });
+    reportedFrame = Math.round(time * fps);
+    controller.seek(reportedFrame);
+  });
+
+  // Follow playhead changes made elsewhere (slider, timeline, scene list).
+  $effect(() => {
+    const frame = Math.round(time * fps);
+    if (controller && frame !== reportedFrame) {
+      reportedFrame = frame;
+      controller.seek(frame);
+    }
   });
 </script>
 
-<div class="flex flex-col gap-3">
-  <div
-    class="relative w-full overflow-hidden rounded-xl border border-slate-800 bg-black {ratioClass}"
-    style={`background: radial-gradient(circle at 26% 35%, ${theme.glow}55, transparent 32%), radial-gradient(circle at 80% 20%, ${theme.accent}33, transparent 28%), linear-gradient(125deg, #08070d 0%, ${theme.base} 55%, ${current?.background_color ?? '#0b0d12'} 125%)`}
-  >
-    <div class="absolute inset-0 opacity-70" style={`background:${phase === 'climax' ? 'repeating-conic-gradient(from 210deg at 70% 48%,rgba(239,68,68,.16) 0deg 7deg,transparent 7deg 18deg)' : phase === 'twist' ? 'repeating-linear-gradient(135deg,rgba(168,85,247,.11) 0 3%,transparent 3% 10%)' : 'repeating-linear-gradient(90deg,rgba(255,255,255,.035) 0 5.5%,rgba(2,6,23,.22) 5.5% 10.5%,rgba(255,255,255,.025) 10.5% 16%)'}`}></div>
-
-    {#if current}
-      <div class="absolute top-[4.5%] right-[5%] left-[5%] z-10 flex items-center justify-between text-[clamp(.42rem,1.1vw,.8rem)] font-bold tracking-[.08em] text-slate-300">
-        <span>✦ KHMER STORY · {projectTitle.toUpperCase()}</span>
-        <span style={`color:${theme.accent}`}>SCENE {current.scene_number} · {theme.label}</span>
+<!-- The stage: the video is fitted into whatever room the editor leaves, never cropped. -->
+<div class="flex h-full min-h-0 flex-col">
+  <div class="min-h-0 flex-1 p-4 [container-type:size]">
+    <div class="flex h-full w-full items-center justify-center">
+      <div
+        class="relative overflow-hidden rounded-lg bg-black shadow-pop ring-1 ring-white/10"
+        style="aspect-ratio:{size[0]} / {size[1]}; width:min(100cqw, calc(100cqh * {size[0]} / {size[1]}))"
+      >
+        <div bind:this={host} class="absolute inset-0"></div>
+        {#if scenes.length && !built.error}
+          <CanvasOverlay
+            layers={activeLayers}
+            bind:selectedLayerId
+            compWidth={size[0]}
+            compHeight={size[1]}
+            {language}
+            ondraft={(layerId, patch) => (draft = patch ? { layerId, patch } : null)}
+            oncommit={(layerId, patch) => current && onlayercommit(current.scene.id, layerId, patch)}
+            onedit={onlayeredit}
+          />
+        {/if}
+        {#if !scenes.length}
+          <div class="absolute inset-0 flex items-center justify-center text-sm text-slate-400">
+            No scenes yet
+          </div>
+        {:else if built.error}
+          <div
+            class="absolute inset-0 flex items-center justify-center p-6 text-center text-sm text-red-300"
+          >
+            Preview unavailable: {built.error}
+          </div>
+        {/if}
       </div>
-
-      <div class="absolute top-[19%] right-[9%] aspect-square w-[7%] rounded-full border-2" style={`border-color:${theme.accent}88;background:${theme.glow}18;box-shadow:0 0 35px ${theme.glow}44`}></div>
-      <div class="absolute top-[39%] right-[23%] aspect-square w-[10%] rounded-full border-2" style={`border-color:${theme.accent}66;background:${theme.glow}12;box-shadow:0 0 45px ${theme.glow}33`}></div>
-      <div class="absolute top-[58%] right-[8%] aspect-square w-[12%] rounded-full border-2" style={`border-color:${theme.accent}55;background:${theme.glow}10;box-shadow:0 0 55px ${theme.glow}28`}></div>
-
-      <div class="absolute z-10 drop-shadow-2xl" style={portrait ? 'left:12%;top:25%;width:76%;height:67%' : mirror ? 'left:48%;top:15%;width:46%;height:80%' : 'left:8%;top:15%;width:46%;height:80%'}>
-        <EducationalAvatar speaking={playing && !!current.audio_url} mood={phase} />
-      </div>
-
-      {#if current.on_screen_text && popupOpacity > 0}
-        <div
-          class="absolute z-20 rounded-full border border-white/30 bg-gradient-to-br from-amber-500 to-orange-600 px-[4%] py-[2.5%] font-black text-orange-50 shadow-[0_20px_55px_rgba(234,88,12,.3)]"
-          class:km={isKhmer}
-          style={`left:${portrait ? '7%' : mirror ? '8%' : '50%'};right:${portrait ? '7%' : mirror ? '50%' : '8%'};top:${portrait ? '13%' : '31%'};opacity:${popupOpacity};transform:scale(${popupScale});transform-origin:${portrait ? 'center' : mirror ? 'right center' : 'left center'};text-align:${portrait ? 'center' : mirror ? 'right' : 'left'};font-size:clamp(.8rem,3.3vw,2.5rem);line-height:${isKhmer ? '1.7' : '1.15'};background:linear-gradient(115deg,${theme.glow}f2,${theme.base}f2);box-shadow:0 20px 55px ${theme.glow}55`}
-        >
-          {current.on_screen_text}
-        </div>
-      {/if}
-
-      <div class="absolute right-0 bottom-0 left-0 z-20 h-[10%] border-t-2 border-orange-400 bg-gradient-to-b from-orange-800 to-[#431407] shadow-[0_-12px_30px_rgba(2,6,23,.5)]"></div>
-
-      {#if caption}
-        <div class="absolute inset-x-[6%] bottom-[2.5%] z-30 text-center">
-          <span class="inline-block rounded-lg border border-white/10 bg-slate-950/90 px-3 py-1.5 font-semibold text-white shadow-xl" class:km={isKhmer} style="font-size: clamp(.75rem, 2vw, 1.15rem)">
-            {caption.text}
-          </span>
-        </div>
-      {/if}
-    {:else}
-      <div class="flex h-full items-center justify-center text-sm text-slate-500">No scenes yet</div>
-    {/if}
+    </div>
   </div>
 
-  <div class="flex items-center gap-3">
-    <button class="rounded-lg bg-indigo-600 px-3 py-1.5 text-sm font-medium hover:bg-indigo-500" onclick={togglePlay} disabled={!scenes.length}>
-      {playing ? 'Pause' : 'Play'}
+  <!-- transport -->
+  <div class="flex items-center gap-3 border-t border-slate-800 px-4 py-2">
+    <button
+      class="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-[image:var(--sun-gradient)] text-sun-950 shadow-[0_6px_18px_-6px_rgb(255_138_31/0.7)] transition hover:brightness-110 disabled:opacity-40"
+      onclick={() => controller?.toggle()}
+      disabled={!scenes.length}
+      title="Play / pause (Space)"
+      aria-label={playing ? 'Pause' : 'Play'}
+    >
+      <Icon name={playing ? 'pause' : 'play'} size={16} />
     </button>
-    <input type="range" min="0" max={Math.max(total, 0.1)} step="0.05" bind:value={time} class="flex-1 accent-indigo-500" aria-label="Playhead" />
-    <span class="w-24 text-right font-mono text-xs text-slate-400">{time.toFixed(1)}s / {total.toFixed(1)}s</span>
+    <span class="shrink-0 font-mono text-xs whitespace-nowrap text-slate-300 tabular-nums">
+      {clock(time)} <span class="text-slate-500">/ {clock(total)}</span>
+    </span>
+    <input
+      type="range"
+      min="0"
+      max={Math.max(total, 0.1)}
+      step="0.05"
+      bind:value={time}
+      class="h-1.5 min-w-0 flex-1 cursor-pointer"
+      aria-label="Playhead"
+    />
   </div>
 </div>
