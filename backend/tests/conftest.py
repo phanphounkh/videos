@@ -79,6 +79,8 @@ def database(test_database_url: str) -> AsyncIterator[str]:
     os.environ["TTS_PROVIDER"] = "mock"
     os.environ["LLM_PROVIDER"] = "mock"
     os.environ["GEMINI_API_KEY"] = ""
+    # Usage counters in Redis db 15, not the developer's real one.
+    os.environ["REDIS_URL"] = get_settings().redis_url.rsplit("/", 1)[0] + "/15"
     get_settings.cache_clear()
 
     yield test_database_url
@@ -137,3 +139,25 @@ def _no_background_thumbnails(monkeypatch: pytest.MonkeyPatch) -> None:
         return None
 
     monkeypatch.setattr("app.api.routes.generation.enqueue", _skip)
+
+
+@pytest.fixture(autouse=True)
+def _fresh_telemetry_recorder(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Every test gets its own recorder, so events never leak between tests."""
+    import app.services.telemetry.recorder as recorder
+
+    monkeypatch.setattr(recorder, "_recorder", recorder.Recorder())
+
+
+@pytest.fixture(autouse=True)
+async def _fresh_database_engine(monkeypatch: pytest.MonkeyPatch) -> AsyncIterator[None]:
+    """pytest runs each test in its own event loop, and an engine's connections
+    belong to the loop that opened them. Start every test with no cached engine and
+    close whatever it opened, so code that uses the global engine (the telemetry
+    recorder, background tasks) never touches a connection from an earlier loop."""
+    import app.core.database as db
+
+    monkeypatch.setattr(db, "_engine", None)
+    monkeypatch.setattr(db, "_session_factory", None)
+    yield
+    await db.dispose_engine()

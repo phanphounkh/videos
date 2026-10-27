@@ -15,19 +15,39 @@
 import type { Handle } from '@sveltejs/kit';
 
 const BACKEND_URL = (process.env.BACKEND_URL ?? 'http://localhost:8000').replace(/\/$/, '');
+// The telemetry service. Browser events go in and the admin panel reads out through
+// /api/telemetry/*, so the browser stays on one origin and never learns this address.
+const TELEMETRY_URL = (process.env.TELEMETRY_URL ?? 'http://localhost:8006').replace(/\/$/, '');
+
+/** /api/telemetry/ingest/x -> /api/v1/ingest/x, /api/telemetry/health/x -> /api/v1/health/x,
+ * /api/telemetry/events -> /api/v1/telemetry/events (the admin reads). */
+function telemetryTarget(pathname: string): string {
+  const rest = pathname.slice('/api/telemetry'.length);
+  return /^\/(ingest|health)(\/|$)/.test(rest) ? `/api/v1${rest}` : `/api/v1/telemetry${rest}`;
+}
 
 // Hop-by-hop headers must not be forwarded.
-const STRIP = new Set(['connection', 'keep-alive', 'transfer-encoding', 'upgrade', 'host']);
+const STRIP = new Set(['connection', 'keep-alive', 'transfer-encoding', 'upgrade', 'host', 'expect']);
 
 export const handle: Handle = async ({ event, resolve }) => {
   if (!event.url.pathname.startsWith('/api')) {
     return resolve(event);
   }
 
-  const target = `${BACKEND_URL}${event.url.pathname}${event.url.search}`;
+  const telemetry =
+    event.url.pathname === '/api/telemetry' || event.url.pathname.startsWith('/api/telemetry/');
+  const target = telemetry
+    ? `${TELEMETRY_URL}${telemetryTarget(event.url.pathname)}${event.url.search}`
+    : `${BACKEND_URL}${event.url.pathname}${event.url.search}`;
   const headers = new Headers();
   for (const [key, value] of event.request.headers) {
     if (!STRIP.has(key.toLowerCase())) headers.set(key, value);
+  }
+  // The telemetry service rate-limits anonymous events by client address.
+  try {
+    headers.set('x-forwarded-for', event.getClientAddress());
+  } catch {
+    // Not every adapter can tell; the service then falls back to the socket address.
   }
 
   try {
@@ -44,13 +64,16 @@ export const handle: Handle = async ({ event, resolve }) => {
     const out = new Headers(response.headers);
     out.delete('content-encoding');
     out.delete('content-length');
-    return new Response(response.body, { status: response.status, headers: out });
+    return new Response(response.body, {
+      status: response.status,
+      headers: out
+    });
   } catch (error) {
     return new Response(
       JSON.stringify({
         error: {
           code: 'BACKEND_UNREACHABLE',
-          message: `Could not reach the API at ${BACKEND_URL}: ${String(error)}`
+          message: `Could not reach ${telemetry ? 'telemetry' : 'the API'} at ${telemetry ? TELEMETRY_URL : BACKEND_URL}: ${String(error)}`
         }
       }),
       { status: 502, headers: { 'content-type': 'application/json' } }

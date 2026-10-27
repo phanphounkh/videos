@@ -167,3 +167,130 @@
   font-family: 'Noto Sans Khmer', sans-serif;
   line-height: 1.9;
 }
+
+/*
+ * Chart tokens (telemetry dashboard). The hues are the dataviz reference palette's
+ * dark-mode steps, validated against this app's own surface (#14141d): categorical
+ * slots 1-3 pass all-pairs, the funnel ramp passes the ordinal checks, and the blue
+ * series sits far from the status red for colour-blind readers (a green/red status
+ * pair does NOT, so "succeeded" is drawn in the series blue and only "failed" in red).
+ * The app is dark-only, so there is no light set.
+ */
+.viz-root {
+  color-scheme: dark;
+  --viz-surface: #14141d;
+  --viz-ink: #ecedf5; /* primary text */
+  --viz-ink-2: #babbd0; /* secondary text */
+  --viz-ink-3: #8f90a8; /* axis labels, muted */
+  --viz-grid: #232433; /* hairline gridlines */
+  --viz-axis: #33344a; /* baseline */
+  --viz-crosshair: #4a4b63;
+  --series-1: #3987e5; /* blue: the default series */
+  --series-2: #d95926; /* orange */
+  --series-3: #199e70; /* aqua */
+  --status-good: #0ca30c;
+  --status-warning: #fab219;
+  --status-serious: #ec835a;
+  --status-critical: #d03b3b;
+  /* funnel stages: one blue hue, stepped (ordinal) */
+  --ramp-1: #184f95;
+  --ramp-2: #256abf;
+  --ramp-3: #3987e5;
+  --ramp-4: #6da7ec;
+}
+
+/* Scrolling rows (carousels) without a visible scrollbar. */
+@utility scrollbar-none {
+  scrollbar-width: none;
+  &::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+/* ---- motion -------------------------------------------------------------- */
+/* Scroll reveal (see lib/actions/reveal.ts) and the entrance used by the Home banner. */
+.reveal {
+  opacity: 0;
+  transform: translateY(18px);
+  transition:
+    opacity 0.7s cubic-bezier(0.16, 1, 0.3, 1),
+    transform 0.7s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.reveal.revealed {
+  opacity: 1;
+  transform: none;
+}
+
+@keyframes fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(18px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes pop-in {
+  0% {
+    opacity: 0;
+    transform: scale(0.6);
+  }
+  70% {
+    opacity: 1;
+    transform: scale(1.08);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+@keyframes drift-a {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  50% { transform: translate(60px, 30px) scale(1.12); }
+}
+@keyframes drift-b {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  50% { transform: translate(-50px, 40px) scale(1.18); }
+}
+@keyframes bob {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-8px); }
+}
+@keyframes ring-ping {
+  0% { transform: scale(1); opacity: 0.55; }
+  100% { transform: scale(1.7); opacity: 0; }
+}
+
+@utility animate-fade-up {
+  animation: fade-up 0.8s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+@utility animate-pop-in {
+  animation: pop-in 0.6s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+@utility animate-drift-a {
+  animation: drift-a 14s ease-in-out infinite;
+}
+@utility animate-drift-b {
+  animation: drift-b 18s ease-in-out infinite;
+}
+@utility animate-bob {
+  animation: bob 4.5s ease-in-out infinite;
+}
+@utility animate-ring-ping {
+  animation: ring-ping 2.4s cubic-bezier(0, 0, 0.2, 1) infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .reveal,
+  .animate-fade-up,
+  .animate-pop-in,
+  .animate-drift-a,
+  .animate-drift-b,
+  .animate-bob,
+  .animate-ring-ping {
+    animation: none !important;
+    transition: none !important;
+    opacity: 1 !important;
+    transform: none !important;
+  }
+}

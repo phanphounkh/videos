@@ -157,6 +157,7 @@ async def test_composition_payload_shape(session, auth_client: AsyncClient, proj
         "language": "km",
         "purpose": "story",
         "presenter": True,
+        "avatar": {"kind": "builtin", "id": "toon-m-young", "imageUrl": None, "mode": "mouth"},
         "ctaText": None,
         "music": True,
         "musicUrl": None,

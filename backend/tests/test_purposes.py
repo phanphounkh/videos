@@ -64,7 +64,9 @@ async def test_purposes_endpoint_lists_templates(auth_client: AsyncClient) -> No
     assert response.status_code == 200
     by_key = {item["key"]: item for item in response.json()}
     assert set(by_key) == {p.value for p in VideoPurpose}
-    assert by_key["product_demo"]["presenter"] is False
+    # A host is on by default for every kind of video now: realistic for demos, cartoon for social.
+    assert by_key["product_demo"]["presenter"] is True
+    assert by_key["social_post"]["presenter"] is True
     assert by_key["product_demo"]["aspect_ratio"] == "16:9"
     assert by_key["social_post"]["aspect_ratio"] == "9:16"
 
@@ -76,18 +78,18 @@ async def test_project_takes_purpose_defaults(auth_client: AsyncClient) -> None:
     assert created.status_code == 201
     body = created.json()
     assert body["purpose"] == "product_demo"
-    assert body["presenter"] is False
+    assert body["presenter"] is True
     assert body["cta_text"] == "Try it today"
 
 
 async def test_project_explicit_presenter_and_cta_win(auth_client: AsyncClient) -> None:
     created = await auth_client.post(
         "/api/projects",
-        json={"title": "Launch", "purpose": "product_demo", "presenter": True,
+        json={"title": "Launch", "purpose": "product_demo", "presenter": False,
               "cta_text": "Shop now"},
     )
     body = created.json()
-    assert body["presenter"] is True
+    assert body["presenter"] is False
     assert body["cta_text"] == "Shop now"
 
 

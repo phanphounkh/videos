@@ -16,6 +16,8 @@ from app.core.database import dispose_engine
 from app.core.logging import configure_logging, get_logger
 from app.services.queue import redis_settings
 from app.services.storage import get_storage
+from app.services.telemetry import context as telemetry_context
+from app.services.telemetry.recorder import get_recorder
 from app.workers.tasks import (
     generate_project_media,
     generate_scene_media,
@@ -31,10 +33,15 @@ async def startup(ctx: dict[str, Any]) -> None:
     settings = get_settings()
     # Make sure the bucket exists before any job tries to upload into it.
     await get_storage().ensure_ready()
+    # The worker is its own process, so it has its own telemetry recorder.
+    telemetry_context.set_source("worker")
+    get_recorder().start()
     log.info("worker_startup", environment=settings.environment)
 
 
 async def shutdown(ctx: dict[str, Any]) -> None:
+    # Flush the last events out to Redis before exiting.
+    await get_recorder().stop()
     await dispose_engine()
     log.info("worker_shutdown")
 

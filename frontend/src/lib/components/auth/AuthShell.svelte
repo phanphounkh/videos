@@ -3,6 +3,8 @@
   import { onMount } from 'svelte';
   import Icon, { type IconName } from '$lib/components/ui/Icon.svelte';
   import Logo from '$lib/components/ui/Logo.svelte';
+  import LanguageSwitch from '$lib/components/ui/LanguageSwitch.svelte';
+  import { t } from '$lib/i18n/index.svelte';
 
   let {
     title,
@@ -27,14 +29,15 @@
     return () => query.removeEventListener('change', sync);
   });
 
-  const benefits: { icon: IconName; text: string }[] = [
-    { icon: 'sparkles', text: 'Write the script, scenes and voice from one prompt' },
-    { icon: 'film', text: 'Product demos, social posts, stories and explainers' },
-    { icon: 'captions', text: 'Khmer and English, with timed captions built in' }
-  ];
+  const benefits: { icon: IconName; text: string }[] = $derived([
+    { icon: 'sparkles', text: t('auth.benefit1') },
+    { icon: 'film', text: t('auth.benefit2') },
+    { icon: 'captions', text: t('auth.benefit3') }
+  ]);
 </script>
 
-<main class="grid min-h-full lg:grid-cols-[1.05fr_1fr]">
+<main class="relative grid min-h-full lg:grid-cols-[1.05fr_1fr]">
+  <LanguageSwitch class="absolute top-4 right-4 z-10 sm:right-6" />
   <aside
     class="relative hidden overflow-hidden border-r border-slate-800 bg-slate-900/40 p-12 lg:flex lg:flex-col lg:justify-between"
   >
@@ -47,7 +50,7 @@
     <div class="relative">{#if wide}<Logo size={34} />{/if}</div>
     <div class="relative max-w-md">
       <h2 class="text-[28px] leading-tight font-semibold tracking-tight text-slate-50">
-        Turn an idea into a <span class="sun-text">finished video</span>
+        {t('auth.pitch')}<span class="sun-text">{t('auth.pitchHighlight')}</span>
       </h2>
       <ul class="mt-8 flex flex-col gap-4">
         {#each benefits as benefit (benefit.text)}
@@ -62,7 +65,7 @@
         {/each}
       </ul>
     </div>
-    <p class="relative text-xs text-slate-500">សូរ្យ · Sorya means “the sun” in Khmer</p>
+    <p class="relative text-xs text-slate-500">{t('auth.tagline')}</p>
   </aside>
 
   <section class="flex items-center justify-center px-5 py-10 sm:px-10">

@@ -1,7 +1,8 @@
 <script lang="ts">
   /**
-   * The editor shell: top bar, scene list / media library, preview, properties
-   * panel, toolbar and timeline, plus the keyboard shortcuts.
+   * The editor shell: top bar, tool rail + panel (scenes, media, text, elements,
+   * audio, captions), preview, properties panel, toolbar and timeline, plus the
+   * keyboard shortcuts.
    *
    * It owns no business logic - every change is a callback the page provides.
    * What it does own is local UI state (selection, playhead, zoom, tabs) and the
@@ -14,18 +15,30 @@
    * Esc deselect.
    */
   import { untrack } from 'svelte';
+  import AudioPanel from '$lib/components/editor/AudioPanel.svelte';
+  import CaptionEditor from '$lib/components/editor/CaptionEditor.svelte';
   import EditorToolbar from '$lib/components/editor/EditorToolbar.svelte';
   import ExportDialog from '$lib/components/editor/ExportDialog.svelte';
+  import ElementsPanel from '$lib/components/editor/ElementsPanel.svelte';
   import MediaLibrary from '$lib/components/editor/MediaLibrary.svelte';
-  import PropertiesPanel, { type Tab } from '$lib/components/editor/PropertiesPanel.svelte';
+  import PropertiesPanel from '$lib/components/editor/PropertiesPanel.svelte';
   import SceneList from '$lib/components/editor/SceneList.svelte';
+  import TextPanel from '$lib/components/editor/TextPanel.svelte';
   import Timeline from '$lib/components/editor/Timeline.svelte';
+  import ToolRail, { type Tool } from '$lib/components/editor/ToolRail.svelte';
   import VideoPreview from '$lib/components/editor/VideoPreview.svelte';
+  import AvatarImage from '$lib/components/avatars/AvatarImage.svelte';
+  import AvatarPicker from '$lib/components/avatars/AvatarPicker.svelte';
+  import { hostInfo, loadHosts } from '$lib/components/avatars/hosts.svelte';
+  import Modal from '$lib/components/ui/Modal.svelte';
+  import ProfileMenu from '$lib/components/account/ProfileMenu.svelte';
   import Button from '$lib/components/ui/Button.svelte';
+  import Logo from '$lib/components/ui/Logo.svelte';
   import ErrorBanner from '$lib/components/ui/ErrorBanner.svelte';
   import Icon from '$lib/components/ui/Icon.svelte';
   import StatusBadge from '$lib/components/ui/StatusBadge.svelte';
   import { clamp, layersOf, makeLayer, newId, round } from '$lib/editor/layers';
+  import { t } from '$lib/i18n/index.svelte';
   import type {
     Layer,
     MediaAsset,
@@ -40,7 +53,7 @@
     scenes,
     media = [],
     saving = false,
-    saveLabel = 'Saved',
+    saveLabel = '',
     error = null,
     notice = null,
     canUndo = false,
@@ -72,6 +85,8 @@
     onmakeKhmer,
     onrename,
     onpresenter,
+    onaspect,
+    onavatar,
     onstartRender
   }: {
     project: Project;
@@ -113,23 +128,41 @@
     onmakeKhmer: () => void;
     onrename: (title: string) => void;
     onpresenter: (on: boolean) => void;
+    onaspect: (ratio: string) => void;
+    onavatar: (avatar: string | null) => void;
     onstartRender: () => void;
   } = $props();
+
 
   // ---------------------------------------------------------------- UI state
   let selectedId = $state<string | null>(null);
   let selectedLayerId = $state<string | null>(null);
   let time = $state(0);
   let playing = $state(false);
-  let tab = $state<Tab>('scene');
-  let leftTab = $state<'scenes' | 'media'>('scenes');
+  let tool = $state<Tool>('scenes');
   let zoom = $state<number | null>(null);
   let pps = $state(40);
   let textfocus = $state(0);
   let exportOpen = $state(false);
   let preview = $state<{ toggle: () => void }>();
-  let mediaInput = $state<HTMLInputElement>();
+  // Per-track toggles. Editor-local on purpose: never saved, never exported.
+  // Lock stops edits on a track; hidden / muted only change the preview.
+  type Track = 'title' | 'video' | 'voice' | 'captions' | 'music';
+  const flags = (): Record<Track, boolean> => ({
+    title: false,
+    video: false,
+    voice: false,
+    captions: false,
+    music: false
+  });
   let hint = $state<string | null>(null);
+  let locked = $state(flags());
+  let hidden = $state(flags());
+  let muted = $state(flags());
+  function toggleTrack(track: string, flag: 'locked' | 'hidden' | 'muted') {
+    const bag = flag === 'locked' ? locked : flag === 'hidden' ? hidden : muted;
+    bag[track as Track] = !bag[track as Track];
+  }
 
   // Height of the timeline panel, remembered between visits.
   const HEIGHT_KEY = 'sorya.timelineHeight';
@@ -226,12 +259,6 @@
       }
     });
   });
-  // Choosing a text/sticker brings up its controls.
-  let lastLayer: string | null = null;
-  $effect(() => {
-    if (selectedLayerId && selectedLayerId !== lastLayer) tab = 'layer';
-    lastLayer = selectedLayerId;
-  });
 
   // ---------------------------------------------------------------- actions
   function seekToScene(id: string) {
@@ -242,10 +269,10 @@
 
   function split() {
     const here = underPlayhead;
-    if (!here) return tell('There is nothing to split yet.');
+    if (!here) return tell(t('editor.hint.nothingToSplit'));
     const { scene, at } = here;
     if (at < 0.2 || scene.duration - at < 0.2) {
-      return tell('Move the playhead inside a scene (at least 0.2s from its edges) to split it.');
+      return tell(t('editor.hint.splitInside'));
     }
     selectedId = scene.id;
     onsplit(scene.id, round(at, 3));
@@ -274,13 +301,12 @@
   }
 
   /** New text or sticker on the scene under the playhead. */
-  function addLayer(kind: 'text' | 'sticker') {
+  function addLayer(kind: 'text' | 'sticker', patch: Partial<Layer> = {}) {
     const here = underPlayhead;
-    if (!here) return tell('Add a scene first.');
-    const layer = makeLayer(kind, here.scene, here.at, project.language);
+    if (!here) return tell(t('editor.hint.addScene'));
+    const layer = { ...makeLayer(kind, here.scene, here.at, project.language), ...patch };
     selectedId = here.scene.id;
     selectedLayerId = layer.id;
-    tab = 'layer';
     onlayers(here.scene.id, [...layersOf(here.scene), layer]);
   }
 
@@ -294,7 +320,7 @@
   }
 
   function uploadToScene(file: File, sceneId: string | null) {
-    if (!sceneId) return tell('Select a scene first, or add the file from the Media tab.');
+    if (!sceneId) return tell(t('editor.hint.selectOrMedia'));
     onuploadMedia(file, sceneId);
   }
 
@@ -385,29 +411,39 @@
         break;
     }
   }
+  // ---- host ("avatar") picker in the header
+  let choosingHost = $state(false);
+  const hostLabel = $derived(hostInfo(project.avatar_resolved)?.name ?? '');
+  $effect(() => {
+    if (project.presenter) void loadHosts();
+  });
 </script>
 
 <svelte:window {onkeydown} />
 
 <div class="flex h-full min-h-0 flex-col overflow-y-auto bg-slate-950 lg:overflow-hidden">
   <!-- project bar -->
-  <header class="flex h-14 shrink-0 items-center gap-3 border-b border-slate-800 bg-slate-900 px-3">
+  <header class="flex h-14 shrink-0 items-center gap-2 border-b border-slate-800 bg-slate-900 px-3">
     <a
       href="/projects"
       class="grid h-8 w-8 place-items-center rounded-lg text-slate-400 transition hover:bg-slate-800 hover:text-slate-100"
-      title="Back to projects"
-      aria-label="Back to projects"
+      title={t('editor.top.back')}
+      aria-label={t('editor.top.back')}
     >
       <Icon name="arrowLeft" size={17} />
     </a>
+    <a href="/" class="rounded-md" aria-label={t('editor.top.home')} title={t('editor.top.homeTip')}><Logo size={24} wordmark={false} /></a>
 
-    <input
-      bind:value={titleDraft}
-      onblur={() => titleDraft !== project.title && onrename(titleDraft)}
-      onkeydown={(e) => e.key === 'Enter' && e.currentTarget.blur()}
-      class="!h-9 min-w-0 max-w-xl flex-1 !border-transparent !bg-transparent px-2 text-[15px] font-semibold text-slate-50 hover:!border-slate-700 focus:!bg-slate-950"
-      aria-label="Project title"
-    />
+    <label class="relative ml-1 flex min-w-0 max-w-xs flex-1 items-center">
+      <input
+        bind:value={titleDraft}
+        onblur={() => titleDraft !== project.title && onrename(titleDraft)}
+        onkeydown={(e) => e.key === 'Enter' && e.currentTarget.blur()}
+        class="!h-9 w-full min-w-0 !border-transparent !bg-transparent !pr-8 px-2 text-[15px] font-semibold text-slate-50 hover:!border-slate-700 focus:!bg-slate-950"
+        aria-label={t('editor.top.titleLabel')}
+      />
+      <Icon name="pencil" size={13} class="pointer-events-none absolute right-2.5 text-slate-500" />
+    </label>
 
     <span class="hidden items-center gap-3 text-xs text-slate-500 md:flex">
       {#if notice}
@@ -417,7 +453,7 @@
           role="status"
         >
           <span class="h-1.5 w-1.5 animate-pulse rounded-full bg-sun-400"></span>
-          Generating narration…
+          {t('editor.top.generating')}
         </span>
       {:else}
         <StatusBadge status={project.status} />
@@ -425,52 +461,67 @@
       <span class="inline-flex items-center gap-1.5">
         {#if saving}
           <span class="h-3 w-3 animate-spin rounded-full border-2 border-slate-500 border-t-transparent"></span>
-          Saving…
+          {t('editor.top.saving')}
         {:else}
           <Icon name="check" size={13} class="text-emerald-400" />
-          {saveLabel}
+          {saveLabel || t('editor.top.allSaved')}
         {/if}
       </span>
-      <span class="hidden xl:inline">{project.width}×{project.height} · {project.fps}fps</span>
     </span>
 
     <span class="flex-1"></span>
 
-    <div class="flex items-center gap-0.5 rounded-lg border border-slate-800 bg-slate-950 p-0.5">
-      <button
-        class="grid h-8 w-8 place-items-center rounded-md text-slate-300 transition hover:bg-slate-800 disabled:opacity-35 disabled:hover:bg-transparent"
-        disabled={!canUndo}
-        onclick={onundo}
-        title="Undo (Ctrl+Z)"
-        aria-label="Undo"><Icon name="undo" size={16} /></button
-      >
-      <button
-        class="grid h-8 w-8 place-items-center rounded-md text-slate-300 transition hover:bg-slate-800 disabled:opacity-35 disabled:hover:bg-transparent"
-        disabled={!canRedo}
-        onclick={onredo}
-        title="Redo (Ctrl+Shift+Z)"
-        aria-label="Redo"><Icon name="redo" size={16} /></button
-      >
-    </div>
-
     <label
-      class="hidden cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 text-xs font-medium text-slate-300 hover:bg-slate-800 sm:flex"
-      title="Show the animated host"
+      class="hidden cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 text-xs font-medium text-slate-300 hover:bg-slate-800 lg:flex"
+      title={t('editor.top.hostTip')}
     >
       <input
         type="checkbox"
         checked={project.presenter}
         onchange={(e) => onpresenter(e.currentTarget.checked)}
       />
-      Host
+      {t('editor.top.host')}
     </label>
+    {#if project.presenter}
+      <button
+        type="button"
+        class="hidden max-w-40 items-center gap-2 rounded-lg py-1 pr-2.5 pl-1 text-xs font-medium text-slate-200 hover:bg-slate-800 lg:flex"
+        title={t('avatars.editor.change')}
+        aria-label="{t('avatars.editor.change')}: {hostLabel}"
+        onclick={() => (choosingHost = true)}
+      >
+        <AvatarImage src={hostInfo(project.avatar_resolved)?.image} name={hostLabel || '?'} fit={hostInfo(project.avatar_resolved)?.custom ? 'cover' : 'contain'} class="h-7 w-6 shrink-0 rounded-md bg-slate-950 [&_span]:text-sm" />
+        <span class="truncate">{hostLabel}{#if project.avatar === null} · {t('avatars.editor.automaticSuffix')}{/if}</span>
+      </button>
+    {/if}
 
     {#if !project.language.startsWith('km')}
-      <Button variant="secondary" size="sm" onclick={onmakeKhmer} loading={saving}>
-        Khmer version
-      </Button>
+      <span class="hidden lg:inline">
+        <Button variant="secondary" size="sm" onclick={onmakeKhmer} loading={saving}>
+          {t('editor.top.khmer')}
+        </Button>
+      </span>
     {/if}
-    <Button icon="download" onclick={() => (exportOpen = true)}>Export</Button>
+
+    <div class="flex items-center gap-0.5">
+      <button
+        class="grid h-9 w-9 place-items-center rounded-lg text-slate-300 transition hover:bg-slate-800 disabled:opacity-35 disabled:hover:bg-transparent"
+        disabled={!canUndo}
+        onclick={onundo}
+        title={t('editor.top.undoTip')}
+        aria-label={t('editor.top.undo')}><Icon name="undo" size={17} /></button
+      >
+      <button
+        class="grid h-9 w-9 place-items-center rounded-lg text-slate-300 transition hover:bg-slate-800 disabled:opacity-35 disabled:hover:bg-transparent"
+        disabled={!canRedo}
+        onclick={onredo}
+        title={t('editor.top.redoTip')}
+        aria-label={t('editor.top.redo')}><Icon name="redo" size={17} /></button
+      >
+    </div>
+
+    <Button icon="download" onclick={() => (exportOpen = true)}>{t('editor.top.export')}</Button>
+    <ProfileMenu />
   </header>
 
   {#if error}
@@ -479,7 +530,7 @@
     </div>
   {/if}
 
-  <!-- workspace: media | stage | inspector -->
+  <!-- workspace: tool rail + panel | stage | properties -->
   <div class="relative flex min-h-[28rem] flex-col lg:min-h-0 lg:flex-1 lg:flex-row">
     <!-- a quiet toast over the stage, so messages never push the video around -->
     {#if hint}
@@ -492,29 +543,18 @@
       </p>
     {/if}
 
+    <ToolRail bind:tool />
+
     <aside
       class="flex max-h-80 w-full shrink-0 flex-col border-b border-slate-800 bg-slate-900/40 lg:max-h-none lg:w-[19rem] lg:border-r lg:border-b-0"
     >
-      <div class="flex shrink-0 gap-1 border-b border-slate-800 p-2" role="tablist">
-        {#each [{ id: 'scenes', label: 'Scenes', icon: 'film' }, { id: 'media', label: 'Media', icon: 'image' }] as const as item (item.id)}
-          <button
-            role="tab"
-            aria-selected={leftTab === item.id}
-            class="flex flex-1 items-center justify-center gap-1.5 rounded-lg px-2 py-1.5 text-xs font-semibold transition {leftTab ===
-            item.id
-              ? 'bg-slate-800 text-slate-50'
-              : 'text-slate-400 hover:bg-slate-800/60 hover:text-slate-200'}"
-            onclick={() => (leftTab = item.id)}
-          >
-            <Icon name={item.icon} size={14} />
-            {item.label}
-          </button>
-        {/each}
+      <div class="flex h-12 shrink-0 items-center border-b border-slate-800 px-4">
+        <h2 class="text-sm font-semibold text-slate-50">{t(`editor.tool.${tool}`)}</h2>
       </div>
       <div class="min-h-0 flex-1 overflow-y-auto p-3">
-        {#if leftTab === 'scenes'}
+        {#if tool === 'scenes'}
           <SceneList {scenes} {selectedId} onselect={seekToScene} {onreorder} onadd={onaddScene} />
-        {:else}
+        {:else if tool === 'media'}
           <MediaLibrary
             {media}
             hasScene={!!selected}
@@ -522,6 +562,41 @@
             onuse={(asset) => selected && onusemedia(selected.id, asset)}
             onaddscene={addMediaScene}
           />
+        {:else if tool === 'text'}
+          <TextPanel
+            {scenes}
+            {selectedLayerId}
+            onadd={(patch) => addLayer('text', patch)}
+            onselect={(sceneId, layerId) => {
+              selectedId = sceneId;
+              selectedLayerId = layerId;
+              time = startOf(sceneId) + (layersOf(scenes.find((s) => s.id === sceneId)!).find((l) => l.id === layerId)?.start ?? 0) + 0.05;
+            }}
+          />
+        {:else if tool === 'elements'}
+          <ElementsPanel onadd={(emoji) => addLayer('sticker', { text: emoji })} />
+        {:else if tool === 'audio'}
+          <AudioPanel
+            scene={selected}
+            {project}
+            busy={saving}
+            {onsettings}
+            {onuploadMusic}
+            {onremoveMusic}
+            {onmusic}
+          />
+        {:else if selected}
+          <CaptionEditor
+            scene={selected}
+            at={underPlayhead?.scene.id === selected.id ? underPlayhead.at : -1}
+            oncommit={(captions) => oncaptions(selected.id, captions)}
+            onreset={() => onresetcaptions(selected.id)}
+            onseek={(seconds) => (time = clamp(startOf(selected.id) + seconds, 0, total))}
+          />
+        {:else}
+          <p class="rounded-lg border border-dashed border-slate-800 p-4 text-sm text-slate-500">
+            {t('editor.cap.selectScene')}
+          </p>
         {/if}
       </div>
     </aside>
@@ -532,15 +607,19 @@
         {scenes}
         projectTitle={project.title}
         aspectRatio={project.aspect_ratio}
+        onaspect={onaspect}
         language={project.language}
         purpose={project.purpose}
         presenter={project.presenter}
+        avatar={project.avatar_resolved}
         ctaText={project.cta_text}
         music={project.music}
         musicUrl={project.music_url}
         fps={project.fps}
         width={project.width}
         height={project.height}
+        {hidden}
+        {muted}
         bind:time
         bind:playing
         bind:selectedId
@@ -548,7 +627,6 @@
         onlayercommit={patchLayer}
         onlayeredit={(layerId) => {
           selectedLayerId = layerId;
-          tab = 'layer';
           textfocus += 1;
         }}
       />
@@ -556,8 +634,6 @@
 
     <PropertiesPanel
       scene={selected}
-      {project}
-      bind:tab
       bind:selectedLayerId
       {textfocus}
       busy={saving}
@@ -567,16 +643,9 @@
       {onregenerateVoice}
       {onsettings}
       {onlayers}
-      {oncaptions}
-      {onresetcaptions}
-      onseek={(seconds) => selected && (time = clamp(startOf(selected.id) + seconds, 0, total))}
-      playhead={selected && underPlayhead?.scene.id === selected.id ? underPlayhead.at : -1}
-      onaddlayer={addLayer}
+      onopencaptions={() => (tool = 'captions')}
       onupload={uploadToScene}
       {onclearmedia}
-      {onuploadMusic}
-      {onremoveMusic}
-      {onmusic}
     />
   </div>
 
@@ -585,7 +654,7 @@
     <!-- svelte-ignore a11y_no_static_element_interactions -->
     <div
       class="group relative z-10 h-1.5 shrink-0 cursor-row-resize bg-slate-800 transition hover:bg-sun-500/60"
-      title="Drag to resize the timeline"
+      title={t('editor.top.resizeTimeline')}
       onpointerdown={startResize}
     >
       <span class="absolute top-1/2 left-1/2 h-0.5 w-10 -translate-x-1/2 -translate-y-1/2 rounded bg-slate-600 group-hover:bg-sun-200"></span>
@@ -593,26 +662,14 @@
     <EditorToolbar
       canSplit={!!underPlayhead}
       hasSelection={!!selected}
+      {pps}
       onsplit={split}
       ondelete={deleteSelected}
       onduplicate={duplicateSelected}
-      onaddtext={() => addLayer('text')}
-      onaddsticker={() => addLayer('sticker')}
-      onupload={() => (selected ? mediaInput?.click() : tell('Select a scene first.'))}
+      onzoom={(value) => (zoom = clamp(value, 2, 600))}
       onzoomin={() => zoomBy(1.4)}
       onzoomout={() => zoomBy(1 / 1.4)}
       onfit={() => (zoom = null)}
-    />
-    <input
-      bind:this={mediaInput}
-      type="file"
-      accept="image/png,image/jpeg,image/webp,video/mp4,video/webm,.png,.jpg,.jpeg,.webp,.mp4,.webm"
-      class="hidden"
-      onchange={(e) => {
-        const file = e.currentTarget.files?.[0];
-        e.currentTarget.value = '';
-        if (file) uploadToScene(file, selectedId);
-      }}
     />
     <div class="min-h-0 flex-1">
       <Timeline
@@ -623,6 +680,10 @@
         bind:selectedLayerId
         bind:zoom
         bind:pps
+        {locked}
+        {hidden}
+        {muted}
+        ontoggle={toggleTrack}
         {onreorder}
         {onresize}
         {ontrim}
@@ -631,7 +692,7 @@
           selectedId = sceneId;
           selectedLayerId = null;
           time = clamp(startOf(sceneId) + start + 0.01, 0, total);
-          tab = 'captions';
+          tool = 'captions';
         }}
       />
     </div>
@@ -646,4 +707,19 @@
     onstart={onstartRender}
     onclose={() => (exportOpen = false)}
   />
+{/if}
+
+{#if choosingHost}
+  <Modal wide title={t('avatars.create.chooseTitle')} onclose={() => (choosingHost = false)}>
+    <div class="max-h-[68vh] overflow-y-auto pr-1">
+    <AvatarPicker
+      allowAuto
+      value={project.avatar}
+      onselect={(id) => {
+        choosingHost = false;
+        if (id !== project.avatar) onavatar(id);
+      }}
+    />
+    </div>
+  </Modal>
 {/if}

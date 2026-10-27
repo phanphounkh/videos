@@ -89,6 +89,103 @@ Split and trim are pure arithmetic in `backend/app/services/timeline_ops.py`; un
 
 ---
 
+## Telemetry
+
+A separate service (`./telemetry`, its own Postgres) that records **every event from the
+browser, the API and the render worker**, and an admin panel that shows them.
+
+```
+browser ──POST /api/telemetry/ingest/events──▶ web app proxy ──▶ telemetry service ─┐
+API + worker ──XADD──▶ Redis stream `sorya:telemetry:events` ──▶ consumer ──────────┴▶ events table
+admin panel (/telemetry) ◀── /api/telemetry/* ◀── web app proxy ◀── telemetry service
+```
+
+- **Backend and worker** never wait on telemetry: events go to a bounded in-process queue
+  and are written to a Redis stream in batches; if Redis or the service is down they are
+  dropped and counted, never raised. Every HTTP request becomes an `api_request` event
+  (including failed and signed-out ones), every structured log line becomes a `log` event,
+  every LLM / voice / image call an `llm_usage` event, and the domain events
+  (`project_created`, `script_generated`, `export_started`, `render_job`, ...) are kept.
+- **Browser** (`frontend/src/lib/telemetry/client.ts`): page views and time on page, clicks
+  and rage clicks, scroll depth, fields changed (never their values), every API call,
+  console and uncaught errors, web vitals, tab visibility. It works before sign-in.
+  Each API call carries an `X-Request-ID` and the tab's `X-Telemetry-Session`, so one
+  click can be followed through to everything the server did for it.
+- **Admin panel** (the separate `./admin` app, below): *Events* (every event, filters in the URL,
+  facet counts, histogram, live tail, search, export CSV/JSON, expandable detail with the
+  other events of the same request), *Sessions* and a session timeline that interleaves
+  browser and server events, *Users*, *Overview* (traffic, errors, AI tokens and cost,
+  renders, web vitals) and *Health* (database, Redis, consumer, backlog).
+
+## Admin panel (`./admin`)
+
+A separate web app, outside the frontend (dev: `cd admin && npm run dev` on port **5175**;
+Docker: the `admin` service, `ADMIN_HOST_PORT`). It has its own sign-in for administrator
+accounts and talks to the backend and the telemetry service through its own proxy.
+
+- **Overview, Events, Sessions, Health**: everything telemetry knows (see above).
+- **LLM usage**: calls, failure rate, tokens, estimated cost, by model and by person, and the
+  latest failures.
+- **Users**: search and filter every account; open one to see their usage against limits and
+  their activity, and to **disable/enable** them (blocks sign-in and API access at once),
+  **grant or revoke admin**, set their **plan and monthly limits** (AI generations, AI tokens,
+  exports; empty = unlimited, enforced immediately), reset the month, or **delete** the account
+  (typed-email confirmation). You cannot disable, demote or delete yourself, and the last
+  active admin is protected. Every change is logged as an event (`admin_user_updated`, ...).
+
+## The app (frontend)
+
+- **Home**: pick a format (Generate with AI, Blank, Social reel, YouTube, Presentation, Import media), a template banner, *Continue editing*, templates by category, and recent activity.
+- **Projects**: All / Recent / Starred, folders, grid or list, tick boxes with a bulk bar (Move, Duplicate, Star, Trash), rename, move, and a **Trash** that keeps projects for 30 days (restore, delete forever, empty).
+- **Templates**: twelve ready-made starting points in four categories, with thumbnails drawn by the renderer
+  (`cd backend && PYTHONPATH=. uv run python scripts/render_template_thumbnails.py` redraws them into `frontend/static/templates`).
+- **Create**: a wizard (name, start with, aspect ratio, resolution HD/Full HD, frame rate, folder, and your own media) or **Generate with AI** (`/create/ai`) for the prompt form.
+- **Editor**: tool rail (Scenes, Media, Text, Elements, Audio, Captions), properties on the right, transport and safe guides under the preview, and a timeline with per-track lock/eye/volume (eye and volume are preview-only).
+- **Sidebar**: Create, Home, Projects, Templates, Trash, Settings and a storage meter (plan default 2 GB free, 20 GB pro, 100 GB team; an admin can override it per person).
+
+## Hosts (avatars)
+
+Every video can have an animated host. There are **12 built-in hosts** in two styles, **cartoon** and
+**semi-realistic illustrated**, each as male/female and young/adult/old (Dara, Sophea, Vuthy, Chenda, Ta Sok,
+Yeay Sarun; Rithy, Maly, Samnang, Bopha, Lok Sen, Daun Pen), plus **your own uploaded photo** (up to 12), either with
+a **talking mouth** drawn over the face or with **subtle motion** (breathing and a voice-reactive glow).
+
+- **Choosing:** a favourite in Settings → Avatar, a host in the Generate with AI form, and *Change host* in the editor.
+- **Automatic style:** cartoon for story, social and creator videos, realistic for product demos and explainers.
+  A built-in favourite keeps its person (gender and age) and the style follows the video type; turn this off to use it as is.
+  An uploaded avatar is always used as is.
+- **How it works:** `renderer/src/avatars.ts` (the catalogue), `Host.tsx` (dispatches to the cartoon, realistic or photo host),
+  `backend/app/services/avatars.py` (resolution rules and the payload). `cd renderer && npm run render:avatars`
+  redraws the picker previews in `frontend/static/avatars`.
+
+## Your account (frontend)
+
+Click the avatar in the navbar: your plan, your latest videos, **Usage** (this month against your
+plan's limits), **Settings** (name, password, default language and purpose for new videos,
+delete account) and Log out. Hitting a limit shows a clear `QUOTA_EXCEEDED` message.
+
+**Making someone an admin** (no request can do it, and it is never inferred from an
+email): `cd backend && uv run python -m app.cli make-admin you@example.com`. The telemetry
+service checks admin-ness by asking the backend, so there is one source of truth.
+
+**Run it**: `docker compose up` starts `telemetry-db` and `telemetry` with the rest. For
+local development: `cd telemetry && uv run alembic upgrade head && uv run uvicorn main:app
+--port 8006` (see `telemetry/.env.example`), with `TELEMETRY_URL` pointing the web app at it.
+
+**Settings**: `TELEMETRY_ENABLED` (backend/worker emit), `TELEMETRY_STREAM_KEY`,
+`TELEMETRY_PRICES` (cost is shown only when you give prices, as JSON keyed
+`<service>.<provider>`, for example `{"llm.gemini": {"input_per_1m": 0.30,
+"output_per_1m": 2.50}}`; no price shows a dash, never a made-up zero). Retention
+(90 days by default) and ingest limits are the telemetry service's own settings.
+
+**Privacy.** No prompts, narration, captions, files, input values or emails are recorded.
+Click labels come from fixed UI text only (links by their destination, never their text),
+anything under `data-private` is ignored (the admin panel is a separate app that records nothing), and emails and
+tokens are scrubbed in the browser, in the backend and again on arrival.
+
+
+---
+
 ## Architecture
 
 Three runtimes (API, worker, renderer) plus a SvelteKit frontend and three
@@ -96,12 +193,12 @@ infrastructure services:
 
 ```
                     ┌──────────────────────────┐
-  Browser  ───────▶ │  frontend (SvelteKit 2)  │   :5173 dev / :5174 docker
+  Browser  ───────▶ │  frontend (SvelteKit 2)  │   :5173 dev / :3355 docker
                     │  dashboard + video editor│
                     └───────────┬──────────────┘
                                 │  /api/*  (JSON over HTTP)
                     ┌───────────▼──────────────┐
-                    │  backend (FastAPI)       │   :8000 dev / :8010 docker
+                    │  backend (FastAPI)       │   :8000 dev / :8011 docker
                     │  routes → services →     │
                     │  repositories → models   │
                     └──┬────────┬──────────┬───┘
@@ -296,7 +393,7 @@ docker compose down                 # add -v to wipe volumes
 
 Host ports are deliberately offset so the stack never collides with other
 projects: Postgres `5435`, Redis `6381`, S3 `9100` (console `9101`), backend
-`8010`, frontend `5174`.
+`8011`, frontend `3355`.
 
 **Inside** the compose network services reach each other by service name on the
 container port — `postgres:5432`, `redis:6379`, `s3:8333`. Never `localhost`:

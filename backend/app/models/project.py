@@ -1,9 +1,10 @@
 """Project: one video and everything that belongs to it."""
 
 import uuid
+from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
-from sqlalchemy import Boolean, ForeignKey, Integer, String, Text
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -52,6 +53,8 @@ class Project(Base, UUIDPrimaryKeyMixin, TimestampMixin):
         Boolean, default=True, server_default="true", nullable=False
     )
     # Closing call-to-action button label; null keeps the classic "Follow" button.
+    # The on-screen host: a built-in id, "custom:<uuid>", or null for "automatic".
+    avatar: Mapped[str | None] = mapped_column(String(64), nullable=True)
     cta_text: Mapped[str | None] = mapped_column(String(60), nullable=True)
     tone: Mapped[str | None] = mapped_column(String(64), nullable=True)
     audience: Mapped[str | None] = mapped_column(String(128), nullable=True)
@@ -78,7 +81,22 @@ class Project(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     )
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
 
-    owner: Mapped["User"] = relationship(back_populates="projects")
+    # Organising: a star, an optional folder, and the trash. A trashed project keeps its
+    # data until it is deleted for good (by the person, or after 30 days).
+    starred: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default="false", nullable=False
+    )
+    folder_id: Mapped[uuid.UUID | None] = mapped_column(
+        PGUUID(as_uuid=True),
+        ForeignKey("folders.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    deleted_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True, index=True
+    )
+
+    owner: Mapped["User"] = relationship(back_populates="projects", lazy="joined")
     # Read-only: the id above is what gets written (it closes a reference cycle
     # with assets, so SQLAlchemy must not try to order the two inserts itself).
     thumbnail_asset: Mapped["Asset | None"] = relationship(
@@ -106,7 +124,12 @@ class Project(Base, UUIDPrimaryKeyMixin, TimestampMixin):
 
     @property
     def dimensions(self) -> tuple[int, int]:
-        return AspectRatio(self.aspect_ratio).dimensions
+        width, height = AspectRatio(self.aspect_ratio).dimensions
+        # "hd" renders at two thirds of the full-HD size (720p class); even numbers only,
+        # because video encoders reject odd dimensions.
+        if (self.settings or {}).get("resolution") == "hd":
+            return round(width * 2 / 3 / 2) * 2, round(height * 2 / 3 / 2) * 2
+        return width, height
 
     @property
     def duration(self) -> float:

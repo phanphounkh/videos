@@ -26,11 +26,18 @@ services:
     extends:
       file: docker-compose.yml
       service: s3
+  # The telemetry service itself runs on the host with `uv run`, like the backend; only
+  # its database lives in Docker.
+  telemetry-db:
+    extends:
+      file: docker-compose.yml
+      service: telemetry-db
 
 volumes:
   postgres_data:
   redis_data:
   s3_data:
+  telemetry_db_data:
 
 networks:
   avs:

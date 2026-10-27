@@ -20,6 +20,42 @@ import structlog
 
 from app.core.config import get_settings
 
+_LEVELS = {"debug": "debug", "info": "info", "warning": "warning", "warn": "warning"}
+
+
+def forward_to_telemetry(
+    logger: object, method: str, event_dict: structlog.typing.EventDict
+) -> structlog.typing.EventDict:
+    """Sends every log line to the telemetry service as a `log` event.
+
+    Lines about telemetry itself are skipped, or a Redis outage would log a warning,
+    which would be forwarded, which would fail again. It never raises."""
+    try:
+        name = str(event_dict.get("event", ""))
+        if name and not name.startswith("telemetry_"):
+            from app.services.telemetry import Event, record
+
+            props = {
+                k: v
+                for k, v in event_dict.items()
+                if k not in ("event", "level", "timestamp", "exc_info", "stack", "_record")
+            }
+            if event_dict.get("exc_info"):
+                exc = sys.exc_info()[1]
+                if exc is not None:
+                    props["exception"] = f"{type(exc).__name__}: {exc}"
+            record(
+                Event(
+                    name=name,
+                    event_type="log",
+                    level=_LEVELS.get(str(event_dict.get("level", "info")), "error"),
+                    properties=props,
+                )
+            )
+    except Exception:  # noqa: BLE001 - logging must never fail because telemetry did
+        pass
+    return event_dict
+
 
 def configure_logging() -> None:
     settings = get_settings()
@@ -30,6 +66,7 @@ def configure_logging() -> None:
     shared_processors: list[structlog.typing.Processor] = [
         structlog.contextvars.merge_contextvars,
         structlog.processors.add_log_level,
+        forward_to_telemetry,
         structlog.processors.StackInfoRenderer(),
         structlog.processors.TimeStamper(fmt="iso", utc=True),
     ]

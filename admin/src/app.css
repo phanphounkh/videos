@@ -1,0 +1,200 @@
+@import 'tailwindcss';
+
+/*
+ * Sorya design tokens.
+ *
+ * Sorya (សូរ្យ) is the Khmer word for the sun, so the one accent colour is a warm
+ * sun gradient on deep, slightly violet "ink" surfaces: the accent is the only
+ * saturated thing on screen, so it always means "this is what to press".
+ *
+ * Tailwind's slate scale is redefined as the ink scale, so every existing
+ * `slate-*` class follows the new palette without per-component edits.
+ */
+@theme {
+  --font-sans: 'Inter', 'Noto Sans Khmer', system-ui, sans-serif;
+
+  --color-slate-50: #f6f6fb;
+  --color-slate-100: #ecedf5;
+  --color-slate-200: #d9dae8;
+  --color-slate-300: #babbd0;
+  --color-slate-400: #9798b0;
+  --color-slate-500: #6f7089;
+  --color-slate-600: #4a4b63;
+  --color-slate-700: #33344a;
+  --color-slate-800: #232433;
+  --color-slate-900: #14141d;
+  --color-slate-950: #0a0a10;
+
+  --color-sun-50: #fff8eb;
+  --color-sun-100: #ffecc9;
+  --color-sun-200: #ffd791;
+  --color-sun-300: #ffc15c;
+  --color-sun-400: #ffa733;
+  --color-sun-500: #ff8a1f;
+  --color-sun-600: #f06a0f;
+  --color-sun-700: #c9500c;
+  --color-sun-800: #9d3f10;
+  --color-sun-900: #7f3511;
+  --color-sun-950: #451a05;
+
+  --shadow-pop: 0 10px 40px -10px rgb(0 0 0 / 0.7), 0 0 0 1px rgb(255 255 255 / 0.04);
+  --shadow-glow: 0 0 0 1px rgb(255 167 51 / 0.5), 0 8px 30px -8px rgb(255 138 31 / 0.45);
+}
+
+:root {
+  --font-ui: 'Inter', 'Noto Sans Khmer', system-ui, sans-serif;
+  --sun-gradient: linear-gradient(135deg, #ffb340 0%, #ff7a1a 100%);
+}
+
+@layer base {
+  html {
+    font-family: var(--font-ui);
+    color-scheme: dark;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  body {
+    background-color: var(--color-slate-950);
+    background-image: radial-gradient(
+      900px 420px at 50% -160px,
+      rgb(255 138 31 / 0.09),
+      transparent 70%
+    );
+    background-repeat: no-repeat;
+    color: var(--color-slate-100);
+  }
+
+  ::selection {
+    background: rgb(255 167 51 / 0.35);
+  }
+
+  /* Thin scrollbars that stay out of the way in dense panels. */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--color-slate-700) transparent;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--color-sun-400);
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
+
+  /* One look for every form control. Components may add utilities on top. */
+  input:not([type='checkbox']):not([type='radio']):not([type='range']):not([type='color']):not([type='file']),
+  select,
+  textarea {
+    background-color: var(--color-slate-900);
+    border: 1px solid var(--color-slate-700);
+    border-radius: 0.625rem;
+    color: var(--color-slate-100);
+    transition:
+      border-color 0.15s,
+      box-shadow 0.15s;
+  }
+  input::placeholder,
+  textarea::placeholder {
+    color: var(--color-slate-500);
+  }
+  input:not([type='checkbox']):not([type='radio']):not([type='range']):not([type='color']):not([type='file']):hover,
+  select:hover,
+  textarea:hover {
+    border-color: var(--color-slate-600);
+  }
+  input:not([type='checkbox']):not([type='radio']):not([type='range']):not([type='color']):not([type='file']):focus,
+  select:focus,
+  textarea:focus {
+    outline: none;
+    border-color: var(--color-sun-400);
+    box-shadow: 0 0 0 3px rgb(255 167 51 / 0.18);
+  }
+
+  select {
+    appearance: none;
+    padding-right: 2rem;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%239798b0' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 0.6rem center;
+  }
+
+  input[type='checkbox'] {
+    accent-color: var(--color-sun-500);
+    width: 1rem;
+    height: 1rem;
+  }
+  input[type='color'] {
+    border: 1px solid var(--color-slate-700);
+    border-radius: 0.625rem;
+    background: var(--color-slate-900);
+    padding: 3px;
+    cursor: pointer;
+  }
+  input[type='range'] {
+    accent-color: var(--color-sun-500);
+  }
+  audio {
+    color-scheme: dark;
+  }
+}
+
+@layer components {
+  /* Small section heading used inside panels. */
+  .section-title {
+    font-size: 0.6875rem;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--color-slate-400);
+  }
+
+  /* A raised surface. */
+  .surface {
+    background-color: var(--color-slate-900);
+    border: 1px solid var(--color-slate-800);
+    border-radius: 0.875rem;
+  }
+
+  .sun-text {
+    background: var(--sun-gradient);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+}
+
+.km,
+[lang='km'] {
+  font-family: 'Noto Sans Khmer', sans-serif;
+  line-height: 1.9;
+}
+
+/*
+ * Chart tokens (telemetry dashboard). The hues are the dataviz reference palette's
+ * dark-mode steps, validated against this app's own surface (#14141d): categorical
+ * slots 1-3 pass all-pairs, the funnel ramp passes the ordinal checks, and the blue
+ * series sits far from the status red for colour-blind readers (a green/red status
+ * pair does NOT, so "succeeded" is drawn in the series blue and only "failed" in red).
+ * The app is dark-only, so there is no light set.
+ */
+.viz-root {
+  color-scheme: dark;
+  --viz-surface: #14141d;
+  --viz-ink: #ecedf5; /* primary text */
+  --viz-ink-2: #babbd0; /* secondary text */
+  --viz-ink-3: #8f90a8; /* axis labels, muted */
+  --viz-grid: #232433; /* hairline gridlines */
+  --viz-axis: #33344a; /* baseline */
+  --viz-crosshair: #4a4b63;
+  --series-1: #3987e5; /* blue: the default series */
+  --series-2: #d95926; /* orange */
+  --series-3: #199e70; /* aqua */
+  --status-good: #0ca30c;
+  --status-warning: #fab219;
+  --status-serious: #ec835a;
+  --status-critical: #d03b3b;
+  /* funnel stages: one blue hue, stepped (ordinal) */
+  --ramp-1: #184f95;
+  --ramp-2: #256abf;
+  --ramp-3: #3987e5;
+  --ramp-4: #6da7ec;
+}

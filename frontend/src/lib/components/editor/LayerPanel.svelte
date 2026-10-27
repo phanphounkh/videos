@@ -4,6 +4,7 @@
   import Button from '$lib/components/ui/Button.svelte';
   import Field from '$lib/components/ui/Field.svelte';
   import { STICKERS, clamp, newId, round } from '$lib/editor/layers';
+  import { t } from '$lib/i18n/index.svelte';
   import type { Layer, Scene } from '$lib/types/api';
 
   let {
@@ -12,6 +13,7 @@
     onchange,
     ondelete,
     onduplicate,
+    mode = 'design',
     textfocus = 0
   }: {
     scene: Scene;
@@ -20,6 +22,8 @@
     onchange: (layer: Layer) => void;
     ondelete: (layerId: string) => void;
     onduplicate: (copy: Layer) => void;
+    /** Which group of controls to show; the panel's title and tabs live in the parent. */
+    mode?: 'design' | 'animate';
     /** Changes whenever the canvas asks to start typing (double-click). */
     textfocus?: number;
   } = $props();
@@ -58,16 +62,50 @@
     next.end = round(clamp(Number(next.end) || 0, next.start + 0.2, length));
     next.font_size = clamp(Number(next.font_size) || 6, 1, 60);
     next.rotation = clamp(Number(next.rotation) || 0, -180, 180);
+    next.x = clamp(Number(next.x) || 0, 0, 100);
+    next.y = clamp(Number(next.y) || 0, 0, 100);
     form = next;
     if (JSON.stringify(next) !== JSON.stringify(layer)) onchange(next);
   }
 </script>
 
 <div class="flex flex-col gap-3">
-  <h3 class="section-title">
-    {form.type === 'sticker' ? 'Sticker' : 'Text'} · scene {scene.scene_number}
-  </h3>
+  {#if mode === 'animate'}
+    <Field label={t('editor.layer.animation')}>
+      <select bind:value={form.animation} onchange={() => commit()} class={input}>
+        <option value="pop">{t('editor.anim.pop')}</option>
+        <option value="bounce">{t('editor.anim.bounce')}</option>
+        <option value="fade">{t('editor.anim.fade')}</option>
+        <option value="slide_up">{t('editor.anim.slideUp')}</option>
+        <option value="none">{t('editor.anim.none')}</option>
+      </select>
+    </Field>
 
+    <div class="grid grid-cols-2 gap-3">
+      <Field label={t('editor.layer.appears')} hint={t('editor.layer.appearsHint')}>
+        <input
+          type="number"
+          min="0"
+          max={length}
+          step="0.1"
+          bind:value={form.start}
+          onchange={() => commit()}
+          class={input}
+        />
+      </Field>
+      <Field label={t('editor.layer.disappears')}>
+        <input
+          type="number"
+          min="0"
+          max={length}
+          step="0.1"
+          bind:value={form.end}
+          onchange={() => commit()}
+          class={input}
+        />
+      </Field>
+    </div>
+  {:else}
   {#if form.type === 'sticker'}
     <div class="grid grid-cols-8 gap-1">
       {#each STICKERS as emoji (emoji)}
@@ -77,7 +115,7 @@
         >
       {/each}
     </div>
-    <Field label="Emoji">
+    <Field label={t('editor.layer.emoji')}>
       <input
         bind:this={textInput}
         bind:value={form.text}
@@ -87,7 +125,7 @@
       />
     </Field>
   {:else}
-    <Field label="Text">
+    <Field label={t('editor.layer.text')}>
       <textarea
         bind:this={textInput}
         bind:value={form.text}
@@ -99,7 +137,7 @@
     </Field>
   {/if}
 
-  <Field label={`Size · ${form.font_size.toFixed(1)}%`}>
+  <Field label={t('editor.layer.size', { n: form.font_size.toFixed(1) })}>
     <input
       type="range"
       min="1"
@@ -111,7 +149,7 @@
     />
   </Field>
 
-  <Field label={`Rotation · ${Math.round(form.rotation)}°`}>
+  <Field label={t('editor.layer.rotation', { n: Math.round(form.rotation) })}>
     <input
       type="range"
       min="-180"
@@ -125,7 +163,7 @@
 
   {#if form.type === 'text'}
     <div class="grid grid-cols-2 gap-3">
-      <Field label="Colour">
+      <Field label={t('editor.layer.colour')}>
         <input
           type="color"
           bind:value={form.color}
@@ -133,12 +171,12 @@
           class="h-9 w-full rounded bg-slate-950"
         />
       </Field>
-      <Field label="Weight">
+      <Field label={t('editor.layer.weight')}>
         <select bind:value={form.weight} onchange={() => commit({ weight: Number(form.weight) })} class={input}>
-          <option value={500}>regular</option>
-          <option value={700}>bold</option>
-          <option value={800}>extra bold</option>
-          <option value={900}>black</option>
+          <option value={500}>{t('editor.weight.regular')}</option>
+          <option value={700}>{t('editor.weight.bold')}</option>
+          <option value={800}>{t('editor.weight.extraBold')}</option>
+          <option value={900}>{t('editor.weight.black')}</option>
         </select>
       </Field>
     </div>
@@ -150,7 +188,7 @@
           checked={form.background !== null}
           onchange={(e) => commit({ background: e.currentTarget.checked ? (form.background ?? '#e11d48') : null })}
         />
-        Background
+        {t('editor.props.background')}
       </label>
       {#if form.background !== null}
         <input
@@ -163,40 +201,15 @@
     </div>
   {/if}
 
-  <Field label="Animation">
-    <select bind:value={form.animation} onchange={() => commit()} class={input}>
-      <option value="pop">pop</option>
-      <option value="bounce">bounce</option>
-      <option value="fade">fade in</option>
-      <option value="slide_up">slide up</option>
-      <option value="none">none</option>
-    </select>
-  </Field>
-
   <div class="grid grid-cols-2 gap-3">
-    <Field label="Appears (s)" hint="From the start of the scene.">
-      <input
-        type="number"
-        min="0"
-        max={length}
-        step="0.1"
-        bind:value={form.start}
-        onchange={() => commit()}
-        class={input}
-      />
+    <Field label={t('editor.layer.posX', { n: Math.round(form.x) })}>
+      <input type="range" min="0" max="100" step="1" bind:value={form.x} onchange={() => commit()} class={range} />
     </Field>
-    <Field label="Disappears (s)">
-      <input
-        type="number"
-        min="0"
-        max={length}
-        step="0.1"
-        bind:value={form.end}
-        onchange={() => commit()}
-        class={input}
-      />
+    <Field label={t('editor.layer.posY', { n: Math.round(form.y) })}>
+      <input type="range" min="0" max="100" step="1" bind:value={form.y} onchange={() => commit()} class={range} />
     </Field>
   </div>
+  {/if}
 
   <div class="flex gap-2 border-t border-slate-800 pt-3">
     <Button
@@ -205,8 +218,8 @@
       icon="copy"
       onclick={() => onduplicate({ ...form, id: newId(), x: Math.min(95, form.x + 5), y: Math.min(95, form.y + 5) })}
     >
-      Duplicate
+      {t('common.duplicate')}
     </Button>
-    <Button variant="danger" size="sm" icon="trash" onclick={() => ondelete(layer.id)}>Delete</Button>
+    <Button variant="danger" size="sm" icon="trash" onclick={() => ondelete(layer.id)}>{t('common.delete')}</Button>
   </div>
 </div>

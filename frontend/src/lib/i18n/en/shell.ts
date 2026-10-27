@@ -1,0 +1,38 @@
+/** The sidebar, top bar, search and profile menu. */
+export default {
+  'shell.home': 'Home',
+  'shell.projects': 'Projects',
+  'shell.templates': 'Templates',
+  'shell.trash': 'Trash',
+  'shell.settings': 'Settings',
+  'shell.create': 'Create',
+  'shell.createVideo': 'Create video',
+  'shell.sorya': 'Sorya home',
+  'shell.sidebar': 'Sidebar',
+  'shell.nav': 'Main',
+  'shell.account': 'Account',
+  'shell.openMenu': 'Open menu',
+  'shell.collapse': 'Collapse sidebar',
+  'shell.expand': 'Expand sidebar',
+  'shell.storage': 'Storage',
+  'shell.storageUsed': '{used} of {limit} used',
+  'shell.storageBar': 'Storage used',
+
+  'search.placeholder': 'Search projects and templates…',
+  'search.label': 'Search projects and templates',
+  'search.projects': 'Projects',
+  'search.templates': 'Templates',
+  'search.all': 'Search all projects for “{q}”',
+
+  'menu.account': 'Account menu',
+  'menu.plan': '{plan} plan',
+  'menu.recent': 'Recent videos',
+  'menu.noVideos': 'No videos yet.',
+  'menu.allProjects': 'All projects →',
+  'menu.usage': 'Usage',
+  'menu.settings': 'Settings',
+  'menu.logout': 'Log out',
+  'menu.scenes_one': '{n} scene',
+  'menu.scenes_other': '{n} scenes',
+  'menu.language': 'Language'
+} as Record<string, string>;

@@ -15,6 +15,7 @@ it again replaces that scene's asset and nothing else.
 import uuid
 from dataclasses import dataclass
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import ProviderError
@@ -26,14 +27,44 @@ from app.models.scene import Scene
 from app.models.voice_generation import VoiceGeneration
 from app.repositories.scene_repository import SceneRepository
 from app.schemas.generation import GeneratedScript, GenerateRequest
+from app.services import usage
 from app.services.ai import ScriptRequest, get_image_provider, get_llm_provider, get_tts_provider
 from app.services.ai.speech import align_marks
 from app.services.caption_service import SPEECH_SETTINGS_KEY, CaptionService
 from app.services.media import ENVELOPE_FPS, loudness_envelope
 from app.services.project_service import ProjectService
 from app.services.storage import get_storage, scene_image_key, scene_voice_key
+from app.services.telemetry import Event, record
+from app.services.telemetry.ai import track_ai
 
 log = get_logger(__name__)
+
+# Rough size of a text model's input/output when the provider does not say: about
+# four characters per token. Events built from this are flagged `estimated`.
+_CHARS_PER_TOKEN = 4
+
+
+def _estimate_prompt_tokens(request: ScriptRequest) -> float:
+    from app.services.ai.llm.prompts import build_user_prompt, system_prompt
+
+    text = system_prompt(request.purpose, request.presenter, request.language) + build_user_prompt(
+        prompt=request.prompt,
+        duration=request.duration,
+        language=request.language,
+        style=request.style,
+        tone=request.tone,
+        audience=request.audience,
+        purpose=request.purpose,
+        presenter=request.presenter,
+    )
+    return len(text) / _CHARS_PER_TOKEN
+
+
+def _estimate_script_tokens(script: GeneratedScript) -> float:
+    chars = len(script.title) + len(script.description)
+    for scene in script.scenes:
+        chars += len(scene.narration) + len(scene.visual_prompt) + len(scene.on_screen_text or "")
+    return chars / _CHARS_PER_TOKEN
 
 
 @dataclass(slots=True)
@@ -56,6 +87,8 @@ class GenerationService:
         self, project_id: uuid.UUID, owner_id: uuid.UUID, payload: GenerateRequest
     ) -> Project:
         project = await self.projects.get(project_id, owner_id)
+        await usage.ensure_within(self.session, owner_id, "ai_calls")
+        await usage.ensure_within(self.session, owner_id, "tokens")
 
         log.info(
             "video_generation_started",
@@ -82,25 +115,51 @@ class GenerationService:
         await self.session.commit()
 
         try:
+            # Inside the try: a missing API key fails here, and must still mark the
+            # project failed instead of leaving it "generating".
             provider = get_llm_provider()
-            script = await provider.generate_script(
-                ScriptRequest(
-                    prompt=payload.prompt,
-                    duration=payload.duration,
-                    language=payload.language,
-                    style=str(payload.style),
-                    tone=payload.tone,
-                    audience=payload.audience,
-                    purpose=str(project.purpose),
-                    presenter=project.presenter,
-                )
+            request = ScriptRequest(
+                prompt=payload.prompt,
+                duration=payload.duration,
+                language=payload.language,
+                style=str(payload.style),
+                tone=payload.tone,
+                audience=payload.audience,
+                purpose=str(project.purpose),
+                presenter=project.presenter,
             )
+            async with track_ai(
+                "llm.script",
+                provider=provider.name,
+                model=getattr(provider, "_model", None),
+                user_id=owner_id,
+                project_id=project_id,
+                unit="tokens",
+                input_units=_estimate_prompt_tokens(request),
+                purpose=str(project.purpose),
+                language=payload.language,
+            ) as call:
+                script = await provider.generate_script(request)
+                call.output_units = _estimate_script_tokens(script)
         except ProviderError as exc:
             # Persist the failure: the project must not stay stuck in "generating".
             project.status = ProjectStatus.FAILED
             project.error_message = exc.message
             await self.session.commit()
             log.warning("video_generation_failed", project_id=str(project_id), error=exc.message)
+            record(
+                Event(
+                    name="script_failed",
+                    level="error",
+                    outcome="error",
+                    user_id=str(owner_id),
+                    properties={
+                        "project_id": str(project_id),
+                        "purpose": str(project.purpose),
+                        "error_code": exc.code,
+                    },
+                )
+            )
             raise
 
         await self._replace_scenes(project, script)
@@ -116,6 +175,21 @@ class GenerationService:
         # reports scene_count=0 for a project that really has scenes.
         self.session.expire(project, ["scenes"])
 
+        record(
+            Event(
+                name="script_generated",
+                outcome="ok",
+                user_id=str(owner_id),
+                properties={
+                    "project_id": str(project_id),
+                    "purpose": str(project.purpose),
+                    "language": payload.language,
+                    "scenes": len(script.scenes),
+                    "video_seconds": round(script.total_duration, 1),
+                    "provider": provider.name,
+                },
+            )
+        )
         log.info(
             "script_generated_persisted",
             project_id=str(project_id),
@@ -162,6 +236,7 @@ class GenerationService:
     ) -> MediaOutcome:
         scene = await self._owned_scene(scene_id, owner_id)
         project = scene.project
+        await usage.ensure_within(self.session, owner_id, "ai_calls")
         prompt = prompt_override or scene.visual_prompt or scene.narration[:300]
         if not prompt.strip():
             return MediaOutcome(
@@ -176,7 +251,15 @@ class GenerationService:
         log.info("image_generation_started", scene_id=str(scene_id), provider=provider.name)
 
         try:
-            result = await provider.generate_image(prompt, width, height, style=project.style)
+            async with track_ai(
+                "image.scene",
+                provider=provider.name,
+                user_id=project.owner_id,
+                project_id=project.id,
+                unit="calls",
+                input_units=1,
+            ):
+                result = await provider.generate_image(prompt, width, height, style=project.style)
         except ProviderError as exc:
             log.warning("image_generation_failed", scene_id=str(scene_id), error=exc.message)
             return MediaOutcome(None, GenerationStatus.FAILED, provider.name, exc.message)
@@ -214,6 +297,7 @@ class GenerationService:
     ) -> MediaOutcome:
         scene = await self._owned_scene(scene_id, owner_id)
         project = scene.project
+        await usage.ensure_within(self.session, owner_id, "ai_calls")
         text = scene.narration.strip()
         if not text:
             return MediaOutcome(
@@ -236,9 +320,19 @@ class GenerationService:
         await self.session.flush()
 
         try:
-            result = await provider.generate(
-                text, language, voice, style=(scene.settings or {}).get("delivery")
-            )
+            async with track_ai(
+                "tts.voice",
+                provider=provider.name,
+                user_id=project.owner_id,
+                project_id=project.id,
+                unit="chars",
+                input_units=len(text),
+                language=language,
+            ) as call:
+                result = await provider.generate(
+                    text, language, voice, style=(scene.settings or {}).get("delivery")
+                )
+                call.props["audio_seconds"] = round(result.duration, 2)
         except ProviderError as exc:
             attempt.status = GenerationStatus.FAILED
             attempt.error_message = exc.message
@@ -350,7 +444,15 @@ class GenerationService:
         avoids orphaned records.
         """
         existing = await self.session.get(Asset, previous_asset_id) if previous_asset_id else None
-        if existing is not None and existing.storage_key == storage_key:
+        if existing is None or existing.storage_key != storage_key:
+            # The scene may no longer point at the row that owns this key (an undo
+            # restored a snapshot from before the media existed, or the user picked
+            # another file). The key is deterministic per scene, so the old row is
+            # still there; inserting again violates `uq_assets_storage_key`.
+            existing = await self.session.scalar(
+                select(Asset).where(Asset.storage_key == storage_key)
+            )
+        if existing is not None:
             existing.mime_type = mime_type
             existing.size_bytes = size_bytes
             existing.duration = duration

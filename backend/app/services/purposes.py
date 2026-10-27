@@ -71,7 +71,7 @@ lesson, explainer or list.
         style=VideoStyle.TECHNOLOGY,
         tone="clear, confident and friendly",
         audience="potential customers",
-        presenter=False,
+        presenter=True,
         cta_text="Try it today",
         scene_seconds=8,
         example_prompt=(
@@ -101,7 +101,7 @@ lesson, explainer or list.
         style=VideoStyle.SOCIAL_MEDIA,
         tone="energetic, punchy and relatable",
         audience="social media viewers",
-        presenter=False,
+        presenter=True,
         cta_text=None,
         scene_seconds=5,
         example_prompt="Three quick tips to stay focused while studying at home.",

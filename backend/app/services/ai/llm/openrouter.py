@@ -21,6 +21,7 @@ from app.schemas.generation import GeneratedScript
 from app.services.ai.base import LLMProvider, ScriptRequest
 from app.services.ai.llm.parsing import parse_script
 from app.services.ai.llm.prompts import SCRIPT_JSON_SCHEMA, build_user_prompt, system_prompt
+from app.services.telemetry.ai import report_usage
 
 log = get_logger(__name__)
 
@@ -64,7 +65,14 @@ class OpenRouterLLMProvider(LLMProvider):
                     last_error = f"network error: {exc}"
                 else:
                     if response.status_code == 200:
-                        content = self._extract_content(response.json())
+                        data = response.json()
+                        usage = data.get("usage") if isinstance(data, dict) else None
+                        if isinstance(usage, dict):
+                            report_usage(
+                                input_units=usage.get("prompt_tokens"),
+                                output_units=usage.get("completion_tokens"),
+                            )
+                        content = self._extract_content(data)
                         log.info(
                             "script_generated",
                             provider=self.name,

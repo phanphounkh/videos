@@ -22,7 +22,19 @@ export interface User {
   email: string;
   full_name: string | null;
   is_active: boolean;
+  is_admin: boolean;
+  plan: string;
+  avatar_url: string | null;
   created_at: string;
+}
+
+export interface AccountUsage {
+  plan: string;
+  period: string;
+  used: { ai_calls: number; tokens: number; exports: number };
+  limits: { ai_calls: number | null; tokens: number | null; exports: number | null };
+  projects: number;
+  exports_ready: number;
 }
 
 export interface TokenResponse {
@@ -131,6 +143,10 @@ export interface Project {
   style: string;
   purpose: VideoPurpose;
   presenter: boolean;
+  /** The chosen host: a built-in id, `custom:<uuid>`, or null for automatic. */
+  avatar: string | null;
+  /** The host actually used once "automatic" is worked out. */
+  avatar_resolved: string;
   cta_text: string | null;
   tone: string | null;
   audience: string | null;
@@ -148,6 +164,9 @@ export interface Project {
   music_name: string | null;
   music_duration: number | null;
   error_message: string | null;
+  starred: boolean;
+  folder_id: string | null;
+  deleted_at: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -256,4 +275,76 @@ export interface TimelineSnapshot {
   }[];
   music_asset_id: string | null;
   music: MusicSettings;
+}
+
+export interface Folder {
+  id: string;
+  name: string;
+  project_count: number;
+  cover_url: string | null;
+  created_at: string;
+}
+
+export type ProjectView = 'all' | 'recent' | 'starred' | 'trash';
+export type BulkAction = 'trash' | 'restore' | 'delete' | 'star' | 'unstar' | 'move' | 'duplicate';
+
+export interface TemplateItem {
+  key: string;
+  title: string;
+  category: 'social' | 'business' | 'education' | 'story';
+  purpose: VideoPurpose;
+  aspect_ratio: AspectRatio;
+  duration: number;
+  prompt: string;
+  presenter: boolean;
+  thumbnail_url: string;
+  headline: string;
+  kicker: string;
+  mood: 'hook' | 'setup' | 'rising' | 'twist' | 'climax' | 'payoff';
+}
+
+export interface Storage {
+  used_bytes: number;
+  limit_bytes: number;
+  plan: string;
+}
+
+export interface ActivityItem {
+  kind: 'exported' | 'created';
+  project_id: string;
+  title: string;
+  at: string;
+}
+
+// --- hosts ("avatars") ---------------------------------------------------------
+export type AvatarStyle = 'toon' | 'real';
+export type AvatarGender = 'male' | 'female';
+export type AvatarAge = 'young' | 'adult' | 'old';
+export type AvatarMode = 'mouth' | 'subtle';
+
+export interface BuiltinAvatar {
+  id: string;
+  name: string;
+  style: AvatarStyle;
+  gender: AvatarGender;
+  age: AvatarAge;
+  preview_url: string;
+}
+
+export interface CustomAvatar {
+  id: string;
+  name: string;
+  mode: AvatarMode;
+  image_url: string;
+}
+
+export interface AvatarPreferences {
+  default: string | null;
+  auto: boolean;
+}
+
+export interface AvatarCatalog {
+  builtin: BuiltinAvatar[];
+  custom: CustomAvatar[];
+  preferences: AvatarPreferences;
 }

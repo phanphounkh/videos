@@ -120,6 +120,19 @@ class Settings(BaseSettings):
     render_timeout_seconds: int = 3600
     max_upload_size_mb: int = 100
 
+    # --- telemetry -----------------------------------------------------------
+    # Events are not stored here: they are written to a Redis stream that the separate
+    # telemetry service consumes (see /telemetry). Setting this false stops emitting.
+    telemetry_enabled: bool = True
+    telemetry_stream_key: str = "sorya:telemetry:events"
+    # Approximate cap on the stream, a safety valve if the service is down for long.
+    telemetry_stream_maxlen: int = 500_000
+    # Optional price list for the cost estimate, as JSON, keyed "<service>.<provider>":
+    #   {"llm.gemini": {"input_per_1m": 0.30, "output_per_1m": 2.50},
+    #    "tts.gemini": {"per_1m_chars": 15.0}, "image.replicate": {"per_call": 0.003}}
+    # Empty means "unknown": events then carry no cost rather than a guess.
+    telemetry_prices: str = ""
+
     @field_validator("cors_origins", mode="before")
     @classmethod
     def _split_origins(cls, value: object) -> object:

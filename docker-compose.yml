@@ -1,7 +1,7 @@
 # =============================================================================
 # Sorya - local stack
 #
-# Host ports are deliberately offset (5435/6381/9100/8010/5174) so this stack
+# Host ports are deliberately offset (5435/6381/9100/8011/3355) so this stack
 # never collides with other projects already running on this machine.
 # INSIDE the compose network, services reach each other by SERVICE NAME on the
 # container port: postgres:5432, redis:6379, s3:8333. Never localhost -
@@ -46,6 +46,58 @@ services:
       interval: 5s
       timeout: 3s
       retries: 10
+    networks: [avs]
+
+  # Telemetry has a database of its own, on purpose: events are written constantly and
+  # read in bulk by the admin panel, and neither should ever compete with the app's data.
+  telemetry-db:
+    image: postgres:16-alpine
+    container_name: avs_telemetry_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${TELEMETRY_POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${TELEMETRY_POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: ${TELEMETRY_POSTGRES_DB:-telemetry}
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=C"
+    ports:
+      - "${TELEMETRY_DB_HOST_PORT:-5437}:5432"
+    volumes:
+      - telemetry_db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${TELEMETRY_POSTGRES_USER:-postgres} -d ${TELEMETRY_POSTGRES_DB:-telemetry}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks: [avs]
+
+  # Ingests every event (from the API and worker through a Redis stream, from the browser
+  # over HTTP) and serves them to the admin panel.
+  telemetry:
+    build:
+      context: ./telemetry
+      dockerfile: Dockerfile
+    container_name: avs_telemetry
+    restart: unless-stopped
+    env_file: [.env]
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${TELEMETRY_POSTGRES_USER:-postgres}:${TELEMETRY_POSTGRES_PASSWORD:-postgres}@telemetry-db:5432/${TELEMETRY_POSTGRES_DB:-telemetry}
+      REDIS_URL: redis://redis:6379/0
+      BACKEND_URL: http://backend:8000
+      HOSTNAME: telemetry-ingest-1
+      # The shared .env sets API_PREFIX=/api for the backend; telemetry's routes,
+      # the healthcheck and the frontend/admin proxies all expect /api/v1.
+      API_PREFIX: /api/v1
+    ports:
+      - "${TELEMETRY_HOST_PORT:-8006}:8000"
+    depends_on:
+      telemetry-db: {condition: service_healthy}
+      redis: {condition: service_healthy}
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/api/v1/health', timeout=3).status==200 else 1)"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
     networks: [avs]
 
   # S3-compatible object storage.
@@ -102,7 +154,7 @@ services:
       REDIS_URL: redis://redis:6379/0
       S3_ENDPOINT_URL: http://s3:8333
     ports:
-      - "${BACKEND_HOST_PORT:-8010}:8000"
+      - "${BACKEND_HOST_PORT:-8011}:8000"
     depends_on:
       postgres: {condition: service_healthy}
       redis: {condition: service_healthy}
@@ -157,18 +209,47 @@ services:
     restart: unless-stopped
     environment:
       BACKEND_URL: http://backend:8000
+      TELEMETRY_URL: http://telemetry:8000
+      # adapter-node assumes https without a proxy header, so SvelteKit's origin check
+      # rejected every multipart upload (403) from a plain-http browser. Set this to the
+      # address people open the app at.
+      ORIGIN: ${FRONTEND_ORIGIN:-http://localhost:3355}
+      # adapter-node cuts request bodies at 512K by default, which broke every video
+      # upload through the /api proxy. The backend enforces the real cap (MAX_UPLOAD_SIZE_MB).
+      BODY_SIZE_LIMIT: Infinity
       PORT: "3000"
       HOST: 0.0.0.0
     ports:
-      - "${FRONTEND_HOST_PORT:-5174}:3000"
+      - "${FRONTEND_HOST_PORT:-3355}:3000"
     depends_on:
       backend: {condition: service_started}
+    networks: [avs]
+
+  # The admin panel: a separate app from the frontend. Administrators sign in with a normal
+  # account that has admin rights; it manages people and reads every telemetry event.
+  admin:
+    build:
+      context: ./admin
+      dockerfile: Dockerfile
+    container_name: avs_admin
+    restart: unless-stopped
+    environment:
+      BACKEND_URL: http://backend:8000
+      TELEMETRY_URL: http://telemetry:8000
+      PORT: "3000"
+      HOST: 0.0.0.0
+    ports:
+      - "${ADMIN_HOST_PORT:-5175}:3000"
+    depends_on:
+      backend: {condition: service_started}
+      telemetry: {condition: service_started}
     networks: [avs]
 
 volumes:
   postgres_data:
   redis_data:
   s3_data:
+  telemetry_db_data:
 
 networks:
   avs:

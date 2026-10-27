@@ -17,6 +17,19 @@ export default defineConfig({
     // The browser calls /api/* on the SvelteKit origin and Vite forwards it to
     // FastAPI. That keeps us on one origin in development, so no CORS surprises.
     proxy: {
+      // Browser events and the admin panel's reads go to the telemetry service. Listed
+      // before '/api' so it wins. Same mapping as src/hooks.server.ts.
+      '/api/telemetry': {
+        target: process.env.TELEMETRY_URL ?? 'http://localhost:8006',
+        changeOrigin: true,
+        xfwd: true,
+        rewrite: (path) => {
+          const rest = path.slice('/api/telemetry'.length);
+          return /^\/(ingest|health)(\/|\?|$)/.test(rest)
+            ? `/api/v1${rest}`
+            : `/api/v1/telemetry${rest}`;
+        }
+      },
       '/api': {
         target: process.env.BACKEND_URL ?? 'http://localhost:8000',
         changeOrigin: true

@@ -97,12 +97,17 @@ async def upload_asset(
     if scene_id is not None:
         scene = await SceneService(session).get_owned(scene_id, current_user.id)
         if scene.project_id != project.id:
-            raise ValidationError("That scene belongs to a different project.",
-                                  code="SCENE_PROJECT_MISMATCH")
+            raise ValidationError(
+                "That scene belongs to a different project.", code="SCENE_PROJECT_MISMATCH"
+            )
 
     upload = await _read_upload(file, settings.max_upload_size_mb)
     filename, mime_type, data, asset_type, info = (
-        upload.filename, upload.mime_type, upload.data, upload.asset_type, upload.info
+        upload.filename,
+        upload.mime_type,
+        upload.data,
+        upload.asset_type,
+        upload.info,
     )
     unique = f"{uuid.uuid4().hex[:8]}-{filename}"
     key = (
@@ -208,9 +213,7 @@ async def _read_upload(file: UploadFile, max_mb: int) -> _Upload:
     limit = max_mb * 1024 * 1024
     data = await file.read(limit + 1)
     if len(data) > limit:
-        raise ValidationError(
-            f"File is larger than the {max_mb} MB limit.", code="FILE_TOO_LARGE"
-        )
+        raise ValidationError(f"File is larger than the {max_mb} MB limit.", code="FILE_TOO_LARGE")
     if not data:
         raise ValidationError("The uploaded file is empty.", code="EMPTY_FILE")
 
@@ -220,8 +223,10 @@ async def _read_upload(file: UploadFile, max_mb: int) -> _Upload:
     if asset_type in (AssetType.VIDEO, AssetType.AUDIO):
         info = await probe_media(data, suffix)
 
-    if asset_type == AssetType.VIDEO and info.video_codec and (
-        info.video_codec not in WEB_VIDEO_CODECS
+    if (
+        asset_type == AssetType.VIDEO
+        and info.video_codec
+        and (info.video_codec not in WEB_VIDEO_CODECS)
     ):
         # Phones record HEVC and some cameras ProRes: neither plays reliably in
         # the browser preview or the renderer, so convert once, here.
@@ -266,8 +271,9 @@ async def upload_music(
     project = await ProjectService(session).get(project_id, current_user.id)
     upload = await _read_upload(file, get_settings().max_upload_size_mb)
     if upload.asset_type != AssetType.AUDIO:
-        raise ValidationError("Background music must be an audio file.",
-                              code="UNSUPPORTED_MEDIA_TYPE")
+        raise ValidationError(
+            "Background music must be an audio file.", code="UNSUPPORTED_MEDIA_TYPE"
+        )
 
     key = project_upload_key(str(project.id), f"{uuid.uuid4().hex[:8]}-{upload.filename}")
     stored = await get_storage().put_bytes(key, upload.data, upload.mime_type)
@@ -288,7 +294,9 @@ async def upload_music(
     project.music_asset_id = asset.id
     await session.commit()
     log.info("music_uploaded", project_id=str(project.id), asset_id=str(asset.id))
-    return project_to_response(await ProjectService(session).get(project_id, current_user.id))
+    return project_to_response(
+        await ProjectService(session).get(project_id, current_user.id), current_user
+    )
 
 
 @project_media_router.delete("/{project_id}/music", response_model=ProjectResponse)
@@ -300,4 +308,6 @@ async def remove_music(
     project = await ProjectService(session).get(project_id, current_user.id)
     project.music_asset_id = None
     await session.commit()
-    return project_to_response(await ProjectService(session).get(project_id, current_user.id))
+    return project_to_response(
+        await ProjectService(session).get(project_id, current_user.id), current_user
+    )

@@ -8,6 +8,8 @@
     "studio": "remotion studio src/index.ts",
     "render:sample": "tsx src/render.ts samples/composition.json out/sample.mp4",
     "thumbnail:sample": "tsx src/thumbnail.ts samples/thumbnail.json out/thumbnail.jpg",
+    "render:avatars": "tsx src/avatars-render.ts",
+    "render:demo": "tsx src/demo/render.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

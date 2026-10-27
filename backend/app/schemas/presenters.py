@@ -8,12 +8,14 @@ place keeps routes and services free of presentation logic.
 
 from app.models.project import Project
 from app.models.scene import Scene
+from app.models.user import User
 from app.schemas.project import MusicSettings, ProjectResponse
 from app.schemas.scene import CaptionResponse, SceneResponse
+from app.services.avatars import resolve_avatar
 from app.services.storage.urls import public_url
 
 
-def project_to_response(project: Project) -> ProjectResponse:
+def project_to_response(project: Project, user: User | None = None) -> ProjectResponse:
     width, height = project.dimensions
     thumbnail_key: str | None = None
 
@@ -38,6 +40,10 @@ def project_to_response(project: Project) -> ProjectResponse:
         style=project.style,
         purpose=project.purpose,
         presenter=project.presenter,
+        avatar=project.avatar,
+        avatar_resolved=resolve_avatar(
+            project.avatar, user if user is not None else project.owner, project.purpose
+        ),
         cta_text=project.cta_text,
         tone=project.tone,
         audience=project.audience,
@@ -55,6 +61,9 @@ def project_to_response(project: Project) -> ProjectResponse:
         music_name=project.music_asset.original_filename if project.music_asset else None,
         music_duration=project.music_asset.duration if project.music_asset else None,
         error_message=project.error_message,
+        starred=project.starred,
+        folder_id=project.folder_id,
+        deleted_at=project.deleted_at,
         created_at=project.created_at,
         updated_at=project.updated_at,
     )

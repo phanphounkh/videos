@@ -134,6 +134,7 @@ export const VideoComposition: React.FC<CompositionPayload> = ({ project, scenes
             purpose={project.purpose}
             presenter={project.presenter}
             ctaText={project.ctaText}
+            avatar={project.avatar}
           />
         </Sequence>
       ))}

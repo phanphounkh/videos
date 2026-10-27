@@ -11,6 +11,7 @@ import json
 import os
 import shutil
 import tempfile
+import time
 import uuid
 from pathlib import Path
 from typing import Any
@@ -24,9 +25,11 @@ from app.models.asset import Asset
 from app.models.enums import AssetSource, AssetType
 from app.models.project import Project
 from app.repositories.project_repository import ProjectRepository
+from app.services.avatars import avatar_spec, sync_spec
 from app.services.purposes import get_purpose
 from app.services.storage import get_storage, thumbnail_key
 from app.services.storage.urls import renderer_url
+from app.services.telemetry import Event, record
 
 log = get_logger(__name__)
 
@@ -49,7 +52,7 @@ def _shorten(text: str, limit: int = MAX_HEADLINE_CHARS) -> str:
     return (cut.rsplit(" ", 1)[0] if " " in cut else cut).rstrip(" ,.;:-")
 
 
-def thumbnail_payload(project: Project) -> dict[str, Any]:
+def thumbnail_payload(project: Project, avatar: dict[str, Any] | None = None) -> dict[str, Any]:
     """The JSON the renderer's Thumbnail composition is drawn from."""
     template = get_purpose(project.purpose)
     scenes = sorted(project.scenes, key=lambda scene: scene.scene_number)
@@ -62,17 +65,20 @@ def thumbnail_payload(project: Project) -> dict[str, Any]:
 
     width, height = project.dimensions
     scale = SHORT_SIDE / min(width, height)
+    project_json: dict[str, Any] = {
+        "width": round(width * scale),
+        "height": round(height * scale),
+        "fps": 30,
+        "title": project.title,
+        "language": project.language,
+        "purpose": project.purpose,
+        "presenter": project.presenter,
+        "ctaText": project.cta_text,
+    }
+    if project.presenter:
+        project_json["avatar"] = sync_spec(project, avatar)
     return {
-        "project": {
-            "width": round(width * scale),
-            "height": round(height * scale),
-            "fps": 30,
-            "title": project.title,
-            "language": project.language,
-            "purpose": project.purpose,
-            "presenter": project.presenter,
-            "ctaText": project.cta_text,
-        },
+        "project": project_json,
         "headline": headline or "Sorya",
         "kicker": template.label,
         # The video opens on its hook beat, so the cover wears the same colours.
@@ -93,7 +99,37 @@ class ThumbnailService:
         if project is None or not project.scenes:
             return None
 
-        data = await _render(thumbnail_payload(project))
+        started = time.perf_counter()
+        try:
+            data = await _render(
+                thumbnail_payload(
+                    project, await avatar_spec(self.session, project) if project.presenter else None
+                )
+            )
+        except Exception as exc:
+            record(
+                Event(
+                    name="render_thumbnail",
+                    level="error",
+                    outcome="error",
+                    duration_ms=round((time.perf_counter() - started) * 1000),
+                    user_id=str(project.owner_id),
+                    properties={
+                        "project_id": str(project.id),
+                        "error_code": str(getattr(exc, "code", type(exc).__name__))[:64],
+                    },
+                )
+            )
+            raise
+        record(
+            Event(
+                name="render_thumbnail",
+                outcome="ok",
+                duration_ms=round((time.perf_counter() - started) * 1000),
+                user_id=str(project.owner_id),
+                properties={"project_id": str(project.id), "bytes": len(data)},
+            )
+        )
 
         key = thumbnail_key(str(project.id), uuid.uuid4().hex)
         stored = await get_storage().put_bytes(key, data, "image/jpeg")
@@ -164,7 +200,11 @@ async def _render(payload: dict[str, Any]) -> bytes:
     failure: str | None = None
     try:
         process = await asyncio.create_subprocess_exec(
-            npx, "tsx", str(entry), str(source), str(output),
+            npx,
+            "tsx",
+            str(entry),
+            str(source),
+            str(output),
             cwd=str(renderer_dir),
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.STDOUT,

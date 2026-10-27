@@ -77,6 +77,12 @@ class ConflictError(AppError):
     status_code = 409
 
 
+class QuotaExceededError(AppError):
+    code = "QUOTA_EXCEEDED"
+    message = "You have reached this month's limit for your plan."
+    status_code = 429
+
+
 class ProviderError(AppError):
     """An external AI / storage / render provider failed."""
 

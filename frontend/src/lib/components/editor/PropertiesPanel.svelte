@@ -1,20 +1,16 @@
 <script lang="ts">
-  /** Right-hand panel: Scene, Text/sticker layer, and Audio tabs. */
-  import AudioPanel from '$lib/components/editor/AudioPanel.svelte';
-  import CaptionEditor from '$lib/components/editor/CaptionEditor.svelte';
+  /** Right-hand panel: the selected text/sticker's properties, else the selected scene's. */
   import LayerPanel from '$lib/components/editor/LayerPanel.svelte';
   import Button from '$lib/components/ui/Button.svelte';
   import Field from '$lib/components/ui/Field.svelte';
-  import Icon, { type IconName } from '$lib/components/ui/Icon.svelte';
+  import Icon from '$lib/components/ui/Icon.svelte';
+  import Segmented from '$lib/components/ui/Segmented.svelte';
   import { layersOf, round } from '$lib/editor/layers';
-  import type { Layer, MusicSettings, Project, Scene } from '$lib/types/api';
-
-  export type Tab = 'scene' | 'layer' | 'captions' | 'audio';
+  import { t, tn } from '$lib/i18n/index.svelte';
+  import type { Layer, Scene } from '$lib/types/api';
 
   let {
     scene,
-    project,
-    tab = $bindable<Tab>('scene'),
     selectedLayerId = $bindable<string | null>(null),
     textfocus = 0,
     busy = false,
@@ -24,20 +20,11 @@
     onregenerateVoice,
     onsettings,
     onlayers,
-    oncaptions,
-    onresetcaptions,
-    onseek,
-    playhead = -1,
-    onaddlayer,
+    onopencaptions,
     onupload,
-    onclearmedia,
-    onuploadMusic,
-    onremoveMusic,
-    onmusic
+    onclearmedia
   }: {
     scene: Scene | null;
-    project: Project;
-    tab?: Tab;
     selectedLayerId?: string | null;
     textfocus?: number;
     busy?: boolean;
@@ -47,21 +34,10 @@
     onregenerateVoice: (id: string) => void;
     onsettings: (sceneId: string, patch: Record<string, unknown>) => void;
     onlayers: (sceneId: string, layers: Layer[]) => void;
-    oncaptions: (
-      sceneId: string,
-      captions: { text: string; start_time: number; end_time: number }[]
-    ) => void;
-    onresetcaptions: (sceneId: string) => void;
-    /** Move the playhead to this many seconds into the selected scene. */
-    onseek: (seconds: number) => void;
-    /** The playhead inside the selected scene in seconds, or -1. */
-    playhead?: number;
-    onaddlayer: (kind: 'text' | 'sticker') => void;
+    /** Jump to the Captions panel to edit this scene's captions. */
+    onopencaptions: () => void;
     onupload: (file: File, sceneId: string) => void;
     onclearmedia: (sceneId: string) => void;
-    onuploadMusic: (file: File) => void;
-    onremoveMusic: () => void;
-    onmusic: (patch: Partial<MusicSettings>) => void;
   } = $props();
 
   // Local draft so typing does not fire a request per keystroke. It follows the
@@ -117,107 +93,57 @@
     });
   }
 
-  const tabs: { id: Tab; label: string; icon: IconName }[] = [
-    { id: 'scene', label: 'Scene', icon: 'film' },
-    { id: 'layer', label: 'Text', icon: 'type' },
-    { id: 'captions', label: 'Captions', icon: 'captions' },
-    { id: 'audio', label: 'Audio', icon: 'volume' }
-  ];
+  let layerTab = $state<'design' | 'animate'>('design');
+  // A newly chosen text or sticker starts on Design.
+  let lastLayer: string | null = null;
+  $effect(() => {
+    if (selectedLayerId !== lastLayer) layerTab = 'design';
+    lastLayer = selectedLayerId;
+  });
+  const title = $derived(
+    layer ? (layer.type === 'sticker' ? t('editor.props.sticker') : t('editor.props.text')) : scene ? t('editor.props.scene', { n: scene.scene_number }) : t('editor.props.title')
+  );
 </script>
 
 <aside
-  class="flex max-h-[30rem] w-full shrink-0 flex-col border-t border-slate-800 bg-slate-900/40 lg:max-h-none lg:w-[21rem] lg:border-t-0 lg:border-l"
+  class="flex max-h-[30rem] w-full shrink-0 flex-col border-t border-slate-800 bg-slate-900/40 lg:max-h-none lg:w-[19rem] lg:border-t-0 lg:border-l"
 >
-  <div class="flex shrink-0 gap-1 border-b border-slate-800 p-2" role="tablist">
-    {#each tabs as item (item.id)}
-      <button
-        role="tab"
-        aria-selected={tab === item.id}
-        class="flex flex-1 items-center justify-center gap-1.5 rounded-lg px-2 py-1.5 text-xs font-semibold transition {tab ===
-        item.id
-          ? 'bg-slate-800 text-slate-50'
-          : 'text-slate-400 hover:bg-slate-800/60 hover:text-slate-200'}"
-        onclick={() => (tab = item.id)}
-      >
-        <Icon name={item.icon} size={14} />
-        {item.label}
-      </button>
-    {/each}
+  <div class="flex h-12 shrink-0 items-center justify-between border-b border-slate-800 px-4">
+    <h2 class="text-sm font-semibold text-slate-50">{title}</h2>
+    <span class="text-xs text-slate-500">{t('editor.props.title')}</span>
   </div>
 
   <div class="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-4">
-  {#if tab === 'audio'}
-    <AudioPanel
-      {scene}
-      {project}
-      {busy}
-      {onsettings}
-      {onuploadMusic}
-      {onremoveMusic}
-      {onmusic}
-    />
-  {:else if !scene}
+  {#if !scene}
     <p class="rounded-lg border border-dashed border-slate-800 p-4 text-sm text-slate-500">
-      Select a scene to edit it.
+      {t('editor.props.selectScene')}
     </p>
-  {:else if tab === 'captions'}
-    <CaptionEditor
-      {scene}
-      at={playhead}
-      oncommit={(captions) => oncaptions(scene.id, captions)}
-      onreset={() => onresetcaptions(scene.id)}
-      {onseek}
+  {:else if layer}
+    <Segmented
+      label={t('editor.props.textProps')}
+      options={[
+        { value: 'design', label: t('editor.props.design') },
+        { value: 'animate', label: t('editor.props.animate') }
+      ]}
+      bind:value={layerTab}
     />
-  {:else if tab === 'layer'}
-    <div class="flex gap-2">
-      <Button variant="secondary" size="sm" icon="type" onclick={() => onaddlayer('text')}>Add text</Button>
-      <Button variant="secondary" size="sm" icon="smile" onclick={() => onaddlayer('sticker')}>Add sticker</Button>
-    </div>
-    {#if layer}
-      <LayerPanel
-        {scene}
-        {layer}
-        {textfocus}
-        onchange={(next) => onlayers(scene.id, layers.map((l) => (l.id === next.id ? next : l)))}
-        ondelete={(id) => {
-          selectedLayerId = null;
-          onlayers(scene.id, layers.filter((l) => l.id !== id));
-        }}
-        onduplicate={(copy) => {
-          selectedLayerId = copy.id;
-          onlayers(scene.id, [...layers, copy]);
-        }}
-      />
-    {:else}
-      <p class="rounded-lg border border-dashed border-slate-800 p-4 text-sm text-slate-500">
-        {layers.length
-          ? 'Click a text or sticker on the preview or the timeline to edit it.'
-          : 'Add text or a sticker, then drag it on the preview to place it.'}
-      </p>
-      {#if layers.length}
-        <ul class="flex flex-col gap-1">
-          {#each layers as item (item.id)}
-            <li>
-              <button
-                class="w-full truncate rounded-lg border border-slate-800 px-3 py-1.5 text-left text-sm hover:border-slate-600"
-                onclick={() => (selectedLayerId = item.id)}
-              >
-                {item.type === 'sticker' ? item.text : `“${item.text}”`}
-                <span class="text-xs text-slate-500">
-                  {item.start.toFixed(1)}–{item.end.toFixed(1)}s</span
-                >
-              </button>
-            </li>
-          {/each}
-        </ul>
-      {/if}
-    {/if}
+    <LayerPanel
+      {scene}
+      {layer}
+      {textfocus}
+      mode={layerTab}
+      onchange={(next) => onlayers(scene.id, layers.map((l) => (l.id === next.id ? next : l)))}
+      ondelete={(id) => {
+        selectedLayerId = null;
+        onlayers(scene.id, layers.filter((l) => l.id !== id));
+      }}
+      onduplicate={(copy) => {
+        selectedLayerId = copy.id;
+        onlayers(scene.id, [...layers, copy]);
+      }}
+    />
   {:else}
-    <h3 class="section-title">
-      Scene {scene.scene_number}
-    </h3>
-
-    <Field label="Narration" hint="Spoken text. Drives captions and voice length.">
+    <Field label={t('editor.props.narration')} hint={t('editor.props.narrationHint')}>
       <textarea
         bind:value={narration}
         rows="4"
@@ -226,37 +152,37 @@
       ></textarea>
     </Field>
 
-    <Field label="Important point" hint="Pops up briefly while this scene is spoken.">
+    <Field label={t('editor.props.point')} hint={t('editor.props.pointHint')}>
       <input bind:value={onScreenText} class={input} maxlength="500" />
     </Field>
 
     <div class="grid grid-cols-2 gap-3">
-      <Field label="Duration (s)">
+      <Field label={t('editor.props.duration')}>
         <input type="number" min="0.5" max="120" step="0.1" bind:value={duration} class={input} />
       </Field>
-      <Field label="Transition">
+      <Field label={t('editor.props.transition')}>
         <select bind:value={transition} class={input}>
-          <option value="fade">fade</option>
-          <option value="slide">slide</option>
-          <option value="none">none</option>
+          <option value="fade">{t('editor.transition.fade')}</option>
+          <option value="slide">{t('editor.transition.slide')}</option>
+          <option value="none">{t('editor.transition.none')}</option>
         </select>
       </Field>
     </div>
 
-    <Field label="Background">
+    <Field label={t('editor.props.background')}>
       <input type="color" bind:value={background} class="h-9 w-full rounded bg-slate-950" />
     </Field>
 
     <div class="flex flex-wrap gap-2">
-      <Button onclick={save} loading={busy} icon="check">Save changes</Button>
+      <Button onclick={save} loading={busy} icon="check">{t('editor.props.save')}</Button>
       <Button variant="secondary" icon="mic" onclick={() => onregenerateVoice(scene.id)} loading={busy}>
-        Regenerate voice
+        {t('editor.props.regen')}
       </Button>
     </div>
 
     <!-- picture or clip -->
     <section class="flex flex-col gap-3 border-t border-slate-800 pt-4">
-      <h3 class="section-title">Picture or clip</h3>
+      <h3 class="section-title">{t('editor.props.media')}</h3>
       <div class="flex items-center gap-3">
         <div class="h-14 w-24 shrink-0 overflow-hidden rounded bg-slate-950">
           {#if scene.image_url || scene.video_url}
@@ -267,13 +193,13 @@
               <img src={scene.image_url} alt="" class="h-full w-full object-cover" />
             {/if}
           {:else}
-            <div class="flex h-full items-center justify-center text-[10px] text-slate-600">none</div>
+            <div class="flex h-full items-center justify-center text-[10px] text-slate-600">{t('editor.props.none')}</div>
           {/if}
         </div>
         <div class="flex flex-col gap-1.5">
-          <Button variant="secondary" size="sm" icon="upload" onclick={() => fileInput?.click()}>Upload</Button>
+          <Button variant="secondary" size="sm" icon="upload" onclick={() => fileInput?.click()}>{t('editor.props.upload')}</Button>
           {#if scene.image_url || scene.video_url}
-            <Button variant="ghost" size="sm" icon="trash" onclick={() => onclearmedia(scene.id)}>Remove</Button>
+            <Button variant="ghost" size="sm" icon="trash" onclick={() => onclearmedia(scene.id)}>{t('editor.props.remove')}</Button>
           {/if}
         </div>
       </div>
@@ -290,14 +216,14 @@
       />
 
       {#if scene.image_url || scene.video_url}
-        <Field label="Fit">
+        <Field label={t('editor.props.fit')}>
           <select
             value={fit}
             onchange={(e) => onsettings(scene.id, { media_fit: e.currentTarget.value === 'cover' ? null : e.currentTarget.value })}
             class={input}
           >
-            <option value="cover">Fill the frame</option>
-            <option value="contain">Show everything</option>
+            <option value="cover">{t('editor.props.fill')}</option>
+            <option value="contain">{t('editor.props.contain')}</option>
           </select>
         </Field>
       {/if}
@@ -309,15 +235,15 @@
             checked={kenBurns}
             onchange={(e) => onsettings(scene.id, { ken_burns: e.currentTarget.checked ? null : false })}
           />
-          Slow zoom
+          {t('editor.props.slowZoom')}
         </label>
       {/if}
 
       {#if scene.video_url}
         <Field
-          label="Clip starts at (s)"
+          label={t('editor.props.clipStart')}
           hint={scene.video_duration
-            ? `The clip is ${scene.video_duration.toFixed(1)}s long.`
+            ? t('editor.props.clipLength', { n: scene.video_duration.toFixed(1) })
             : undefined}
         >
           <input
@@ -337,12 +263,12 @@
               variant="secondary"
               onclick={() => onsave(scene.id, { duration: Math.min(120, round(remaining, 1)) })}
             >
-              Fit scene to clip ({remaining.toFixed(1)}s)
+              {t('editor.props.fitClip', { n: remaining.toFixed(1) })}
             </Button>
           {/if}
           {#if scene.duration > remaining + 0.1}
             <p class="text-xs text-amber-300">
-              The scene is longer than the rest of the clip, so the clip's last frame will hold.
+              {t('editor.props.longer')}
             </p>
           {/if}
         {/if}
@@ -351,7 +277,7 @@
 
     {#if scene.audio_url}
       <div class="flex flex-col gap-1">
-        <span class="section-title">Voice</span>
+        <span class="section-title">{t('editor.props.voice')}</span>
         <!-- svelte-ignore a11y_media_has_caption -->
         <audio controls src={scene.audio_url} class="w-full"></audio>
       </div>
@@ -359,21 +285,20 @@
 
     <button
       class="flex items-center justify-between gap-3 rounded-xl border border-slate-800 bg-slate-900/50 px-3.5 py-3 text-left transition hover:border-slate-600"
-      onclick={() => (tab = 'captions')}
+      onclick={onopencaptions}
     >
       <span class="flex flex-col">
-        <span class="text-sm font-medium text-slate-100">Captions</span>
+        <span class="text-sm font-medium text-slate-100">{t('editor.tool.captions')}</span>
         <span class="text-xs text-slate-500">
-          {scene.captions.length}
-          {scene.captions.length === 1 ? 'caption' : 'captions'}{scene.settings?.captions_edited ? ' · edited by hand' : ''}
+          {tn('editor.props.captionCount', scene.captions.length)}{scene.settings?.captions_edited ? t('editor.props.byHand') : ''}
         </span>
       </span>
-      <span class="flex items-center gap-1 text-xs font-medium text-sun-300">Edit <Icon name="captions" size={14} /></span>
+      <span class="flex items-center gap-1 text-xs font-medium text-sun-300">{t('editor.props.edit')} <Icon name="captions" size={14} /></span>
     </button>
 
     <div class="mt-2 flex gap-2 border-t border-slate-800 pt-3">
-      <Button variant="secondary" size="sm" icon="copy" onclick={() => onduplicate(scene.id)}>Duplicate</Button>
-      <Button variant="danger" size="sm" icon="trash" onclick={() => ondelete(scene.id)}>Delete scene</Button>
+      <Button variant="secondary" size="sm" icon="copy" onclick={() => onduplicate(scene.id)}>{t('common.duplicate')}</Button>
+      <Button variant="danger" size="sm" icon="trash" onclick={() => ondelete(scene.id)}>{t('editor.props.deleteScene')}</Button>
     </div>
   {/if}
   </div>

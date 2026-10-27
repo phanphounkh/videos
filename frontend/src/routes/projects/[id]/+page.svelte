@@ -8,8 +8,10 @@
   import { api } from '$lib/api';
   import VideoEditor from '$lib/components/editor/VideoEditor.svelte';
   import ErrorBanner from '$lib/components/ui/ErrorBanner.svelte';
+  import { t } from '$lib/i18n/index.svelte';
   import { auth } from '$lib/stores/auth.svelte';
   import { History, takeSnapshot } from '$lib/editor/history.svelte';
+  import { measure, track } from '$lib/telemetry/client';
   import type { Layer, MediaAsset, MusicSettings, Project, RenderJob, Scene } from '$lib/types/api';
 
   const projectId = $derived(page.params.id as string);
@@ -18,7 +20,12 @@
   let scenes = $state<Scene[]>([]);
   let loading = $state(true);
   let saving = $state(false);
-  let saveLabel = $state('Saved');
+  // What the save indicator says: nothing yet (the editor shows "All changes saved"),
+  // or a kind plus the detail to fill in. Kept as data so a language switch re-translates it.
+  let saveState = $state<{ kind: 'saved' | 'uploading' | 'undid' | 'redid'; arg: string } | null>(null);
+  const saveLabel = $derived(
+    saveState ? t(`editor.save.${saveState.kind}`, { arg: saveState.arg }) : ''
+  );
   let error = $state<unknown>(null);
 
   let renderJob = $state<RenderJob | null>(null);
@@ -26,6 +33,7 @@
 
   let media = $state<MediaAsset[]>([]);
   const history = new History();
+  let openedReported = false;
 
   let pollTimer: ReturnType<typeof setTimeout> | null = null;
   let pollAttempts = $state(0);
@@ -44,6 +52,10 @@
       const detail = await api.getProjectDetail(projectId);
       project = detail.project;
       scenes = detail.scenes;
+      if (!openedReported) {
+        openedReported = true;
+        track('editor.opened', { scenes: detail.scenes.length }, projectId);
+      }
     } catch (e) {
       error = e;
     } finally {
@@ -76,7 +88,7 @@
   );
 
   const notice = $derived(
-    mediaPending && pollAttempts < MAX_POLLS ? 'Generating narration in the background. This view refreshes itself.' : null
+    mediaPending && pollAttempts < MAX_POLLS ? t('editor.page.notice') : null
   );
 
   $effect(() => {
@@ -112,7 +124,7 @@
     try {
       await action();
       if (reload) await load();
-      saveLabel = `Saved ${new Date().toLocaleTimeString()}`;
+      saveState = { kind: 'saved', arg: new Date().toLocaleTimeString() };
       return true;
     } catch (e) {
       error = e;
@@ -137,12 +149,27 @@
    * succession (dragging, typing, keyboard repeat).
    */
   let tail: Promise<unknown> = Promise.resolve();
-  function act<T>(action: () => Promise<T>, optimistic?: () => void): Promise<void> {
+  function act<T>(
+    name: string,
+    action: () => Promise<T>,
+    optimistic?: () => void
+  ): Promise<void> {
     const run = tail.then(async () => {
       remember();
       optimistic?.();
+      const started = performance.now();
       // A change that failed leaves nothing to undo.
-      if (!(await mutate(action))) history.discardLast();
+      if (!(await mutate(action))) {
+        history.discardLast();
+        return;
+      }
+      // Telemetry: which action, and how long the person waited for it.
+      track(`editor.${name}`, undefined, projectId);
+      measure('editor.action', {
+        duration_ms: performance.now() - started,
+        props: { action: name },
+        project_id: projectId
+      });
     });
     tail = run.catch(() => undefined);
     return run;
@@ -162,19 +189,21 @@
     return merged;
   };
 
-  const saveScene = (id: string, patch: Partial<Scene>) => act(() => api.updateScene(id, patch));
-  const deleteScene = (id: string) => act(() => api.deleteScene(id));
-  const duplicateScene = (id: string) => act(() => api.duplicateScene(id));
+  const saveScene = (id: string, patch: Partial<Scene>) =>
+    act('edit_scene', () => api.updateScene(id, patch));
+  const deleteScene = (id: string) => act('delete_scene', () => api.deleteScene(id));
+  const duplicateScene = (id: string) => act('duplicate_scene', () => api.duplicateScene(id));
   const addScene = () =>
-    act(() =>
+    act('add_scene', () =>
       api.createScene(projectId, {
         narration: '',
-        on_screen_text: 'New scene',
+        on_screen_text: t('editor.page.newScene'),
         duration: 5
       })
     );
   const reorder = (ids: string[]) =>
     act(
+      'reorder',
       () => api.reorderScenes(projectId, ids),
       () => {
         // Show the new order immediately; the server's numbering replaces it.
@@ -186,28 +215,31 @@
     );
   const resizeScene = (id: string, duration: number) =>
     act(
+      'resize',
       () => api.updateScene(id, { duration }),
       () => patchLocal(id, (scene) => ({ ...scene, duration }))
     );
   const trimScene = (id: string, start: number, end: number) =>
-    act(() => api.trimScene(id, start, end));
-  const splitScene = (id: string, at: number) => act(() => api.splitScene(id, at));
+    act('trim', () => api.trimScene(id, start, end));
+  const splitScene = (id: string, at: number) => act('split', () => api.splitScene(id, at));
 
   /** Change some of a scene's settings (volumes, trim, fit...). `null` removes a key. */
-  const changeSettings = (id: string, patch: Record<string, unknown>) =>
+  const changeSettings = (id: string, patch: Record<string, unknown>, name = 'settings') =>
     act(
+      name,
       () => api.updateScene(id, { settings: patch }),
       () => patchLocal(id, (scene) => ({ ...scene, settings: mergeSettings(scene.settings, patch) }))
     );
-  const changeLayers = (id: string, layers: Layer[]) => changeSettings(id, { layers });
+  const changeLayers = (id: string, layers: Layer[]) =>
+    changeSettings(id, { layers }, 'layer_edit');
   const changeCaptions = (
     id: string,
     captions: { text: string; start_time: number; end_time: number }[]
-  ) => act(() => api.setCaptions(id, captions));
-  const resetCaptions = (id: string) => act(() => api.resetCaptions(id));
+  ) => act('captions_edit', () => api.setCaptions(id, captions));
+  const resetCaptions = (id: string) => act('captions_reset', () => api.resetCaptions(id));
 
   const useMedia = (sceneId: string, asset: MediaAsset) =>
-    act(() =>
+    act('use_media', () =>
       api.updateScene(
         sceneId,
         asset.type === 'video'
@@ -216,9 +248,11 @@
       )
     );
   const clearMedia = (sceneId: string) =>
-    act(() => api.updateScene(sceneId, { image_asset_id: null, video_asset_id: null }));
+    act('clear_media', () =>
+      api.updateScene(sceneId, { image_asset_id: null, video_asset_id: null })
+    );
   const addMediaScene = (asset: MediaAsset, position: number) =>
-    act(async () => {
+    act('add_media_scene', async () => {
       const length = asset.type === 'video' && asset.duration ? Math.min(asset.duration, 60) : 5;
       const created = await api.createScene(projectId, {
         narration: '',
@@ -234,23 +268,31 @@
 
   const uploadMedia = (file: File, sceneId: string | null) => {
     const send = async () => {
-      saveLabel = `Uploading ${file.name}…`;
+      saveState = { kind: 'uploading', arg: file.name };
+      const started = performance.now();
       await api.uploadMedia(projectId, file, sceneId);
       await refreshMedia();
+      // How long an upload takes depends on size, so the size goes with it.
+      measure('upload.client', {
+        duration_ms: performance.now() - started,
+        props: { bytes: file.size, kind: file.type.split('/')[0] },
+        project_id: projectId
+      });
     };
     // Only an upload that replaces a scene's picture changes the timeline; one
     // that just fills the library is nothing to undo.
-    return sceneId ? act(send) : mutate(send).then(() => undefined);
+    return sceneId ? act('upload_media', send) : mutate(send).then(() => undefined);
   };
 
   const uploadMusic = (file: File) =>
-    act(async () => {
-      saveLabel = `Uploading ${file.name}…`;
+    act('upload_music', async () => {
+      saveState = { kind: 'uploading', arg: file.name };
       await api.uploadMusic(projectId, file);
     });
-  const removeMusic = () => act(() => api.removeMusic(projectId));
+  const removeMusic = () => act('remove_music', () => api.removeMusic(projectId));
   const changeMusic = (patch: Partial<MusicSettings>) =>
     act(
+      'music_settings',
       () => api.updateProject(projectId, { music: { ...project!.music, ...patch } }),
       () => {
         if (project) project = { ...project, music: { ...project.music, ...patch } };
@@ -267,8 +309,10 @@
       const ok = await mutate(async () => {
         await api.restoreTimeline(projectId, target);
       });
-      if (ok) saveLabel = `${kind === 'undo' ? 'Undid' : 'Redid'} at ${new Date().toLocaleTimeString()}`;
-      else history.rollback(kind, target);
+      if (ok) {
+        saveState = { kind: kind === 'undo' ? 'undid' : 'redid', arg: new Date().toLocaleTimeString() };
+        track(`editor.${kind}`, undefined, projectId);
+      } else history.rollback(kind, target);
     });
     tail = run.catch(() => undefined);
     return run;
@@ -277,6 +321,8 @@
   const rename = (title: string) => mutate(() => api.updateProject(projectId, { title }));
   const setPresenter = (presenter: boolean) =>
     mutate(() => api.updateProject(projectId, { presenter }));
+  const setAspect = (aspect_ratio: string) => mutate(() => api.updateProject(projectId, { aspect_ratio }));
+  const setAvatar = (avatar: string | null) => mutate(() => api.updateProject(projectId, { avatar }));
   const regenerateVoice = (id: string) => mutate(() => api.generateSceneVoice(id));
 
   const makeKhmer = () => {
@@ -318,12 +364,12 @@
   {#if loading}
     <div class="flex h-full items-center justify-center gap-3 text-sm text-slate-400">
       <span class="h-4 w-4 animate-spin rounded-full border-2 border-slate-500 border-t-transparent"></span>
-      Opening project…
+      {t('editor.page.opening')}
     </div>
   {:else if !project}
     <div class="mx-auto flex max-w-md flex-col gap-4 px-6 py-16">
       <ErrorBanner {error} />
-      <a href="/projects" class="text-sm font-medium text-sun-300 hover:text-sun-200">← Back to projects</a>
+      <a href="/projects" class="text-sm font-medium text-sun-300 hover:text-sun-200">← {t('editor.top.back')}</a>
     </div>
   {:else}
     <VideoEditor
@@ -346,6 +392,7 @@
       onresize={resizeScene}
       ontrim={trimScene}
       onsplit={splitScene}
+      onavatar={setAvatar}
       onsettings={changeSettings}
       onlayers={changeLayers}
       oncaptions={changeCaptions}
@@ -363,6 +410,7 @@
       onmakeKhmer={makeKhmer}
       onrename={rename}
       onpresenter={setPresenter}
+      onaspect={setAspect}
       onstartRender={startRender}
     />
   {/if}

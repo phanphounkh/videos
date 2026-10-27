@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { t } from '$lib/i18n/index.svelte';
   import type { ProjectStatus, RenderStatus } from '$lib/types/api';
 
   let { status }: { status: ProjectStatus | RenderStatus | string } = $props();
@@ -23,5 +24,5 @@
   class="inline-flex items-center gap-1.5 rounded-full bg-slate-800/80 px-2.5 py-1 text-xs font-medium capitalize {text}"
 >
   <span class="h-1.5 w-1.5 rounded-full {dot} {working ? 'animate-pulse' : ''}"></span>
-  {status.replace('_', ' ')}
+  {t(`status.${status}`)}
 </span>

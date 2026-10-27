@@ -306,3 +306,41 @@ async def test_generation_requires_ownership(
         headers=headers,
     )
     assert response.status_code == 404
+
+
+async def test_regenerating_media_after_it_was_detached_reuses_the_row(
+    auth_client: AsyncClient, project: dict, fakes: FakeStorage, session
+) -> None:
+    # Regression: an undo can restore a scene with no audio/image while the
+    # generated Asset row (deterministic storage key) still exists. Generating
+    # again used to INSERT a second row -> uq_assets_storage_key -> HTTP 500.
+    from sqlalchemy import func, select, update
+
+    from app.models.asset import Asset
+    from app.models.scene import Scene
+
+    await auth_client.post(
+        f"/api/projects/{project['id']}/generate",
+        json={"prompt": "explain testing", "duration": 10, "language": "en",
+              "style": "educational", "generate_media": False},
+    )
+    scene = (await auth_client.get(f"/api/projects/{project['id']}/scenes"))
+    scene_id = scene.json()[0]["id"]
+    assert (await auth_client.post(f"/api/scenes/{scene_id}/generate-voice")).status_code == 200
+    assert (await auth_client.post(f"/api/scenes/{scene_id}/generate-image")).status_code == 200
+
+    await session.execute(
+        update(Scene)
+        .where(Scene.id == uuid.UUID(scene_id))
+        .values(audio_asset_id=None, image_asset_id=None)
+    )
+    await session.commit()
+
+    assert (await auth_client.post(f"/api/scenes/{scene_id}/generate-voice")).status_code == 200
+    assert (await auth_client.post(f"/api/scenes/{scene_id}/generate-image")).status_code == 200
+    refreshed = (await auth_client.get(f"/api/scenes/{scene_id}")).json()
+    assert refreshed["audio_url"] and refreshed["image_url"]
+    count = await session.scalar(
+        select(func.count()).select_from(Asset).where(Asset.scene_id == uuid.UUID(scene_id))
+    )
+    assert count == 2

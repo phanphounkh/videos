@@ -26,14 +26,30 @@ def _snapshot(scenes: list[dict], project: dict | None = None) -> dict:
     return {
         "scenes": [
             {
-                **{k: s[k] for k in (
-                    "id", "narration", "visual_prompt", "on_screen_text", "duration",
-                    "transition", "background_color", "language", "settings",
-                    "image_asset_id", "video_asset_id", "audio_asset_id",
-                )},
+                **{
+                    k: s[k]
+                    for k in (
+                        "id",
+                        "narration",
+                        "visual_prompt",
+                        "on_screen_text",
+                        "duration",
+                        "transition",
+                        "background_color",
+                        "language",
+                        "settings",
+                        "image_asset_id",
+                        "video_asset_id",
+                        "audio_asset_id",
+                    )
+                },
                 "captions": [
-                    {"text": c["text"], "start_time": c["start_time"],
-                     "end_time": c["end_time"], "language": c["language"]}
+                    {
+                        "text": c["text"],
+                        "start_time": c["start_time"],
+                        "end_time": c["end_time"],
+                        "language": c["language"],
+                    }
                     for c in s["captions"]
                 ],
             }
@@ -45,9 +61,22 @@ def _snapshot(scenes: list[dict], project: dict | None = None) -> dict:
 
 
 def _layer(**extra) -> dict:
-    return {"id": "l1", "type": "text", "text": "Hello", "x": 50, "y": 40, "font_size": 8,
-            "rotation": 0, "color": "#ffffff", "background": None, "weight": 800,
-            "animation": "pop", "start": 0, "end": 3, **extra}
+    return {
+        "id": "l1",
+        "type": "text",
+        "text": "Hello",
+        "x": 50,
+        "y": 40,
+        "font_size": 8,
+        "rotation": 0,
+        "color": "#ffffff",
+        "background": None,
+        "weight": 800,
+        "animation": "pop",
+        "start": 0,
+        "end": 3,
+        **extra,
+    }
 
 
 # ------------------------------------------------------------------- settings
@@ -95,8 +124,9 @@ async def test_invalid_settings_are_rejected(
 
 # ----------------------------------------------------------------- split / trim
 async def test_split_makes_two_scenes_that_add_up(auth_client: AsyncClient, project: dict) -> None:
-    first = await _scene(auth_client, project["id"], on_screen_text="Key point",
-                         transition="slide", duration=8.0)
+    first = await _scene(
+        auth_client, project["id"], on_screen_text="Key point", transition="slide", duration=8.0
+    )
     await _scene(auth_client, project["id"], narration="tail", duration=2.0)
 
     response = await auth_client.post(f"/api/scenes/{first['id']}/split", json={"at": 3.0})
@@ -116,9 +146,7 @@ async def test_split_makes_two_scenes_that_add_up(auth_client: AsyncClient, proj
     assert scenes[2]["start_time"] == pytest.approx(8.0)
 
 
-async def test_split_outside_the_scene_is_rejected(
-    auth_client: AsyncClient, project: dict
-) -> None:
+async def test_split_outside_the_scene_is_rejected(auth_client: AsyncClient, project: dict) -> None:
     scene = await _scene(auth_client, project["id"], duration=4.0)
     for at in (0.05, 3.95, 9.0):
         response = await auth_client.post(f"/api/scenes/{scene['id']}/split", json={"at": at})
@@ -146,8 +174,9 @@ async def test_split_keeps_speech_in_sync(auth_client: AsyncClient, project: dic
 
 
 async def test_trim_keeps_the_window(auth_client: AsyncClient, project: dict) -> None:
-    scene = await _scene(auth_client, project["id"], duration=8.0,
-                         settings={"layers": [_layer(start=0, end=8)]})
+    scene = await _scene(
+        auth_client, project["id"], duration=8.0, settings={"layers": [_layer(start=0, end=8)]}
+    )
     scenes = (
         await auth_client.post(f"/api/scenes/{scene['id']}/trim", json={"start": 2.0, "end": 6.0})
     ).json()
@@ -155,7 +184,10 @@ async def test_trim_keeps_the_window(auth_client: AsyncClient, project: dict) ->
     trimmed = scenes[0]
     assert trimmed["duration"] == 4.0
     assert trimmed["settings"]["audio_start"] == 2.0
-    assert trimmed["settings"]["layers"][0]["start"] == 0 and trimmed["settings"]["layers"][0]["end"] == 4
+    assert (
+        trimmed["settings"]["layers"][0]["start"] == 0
+        and trimmed["settings"]["layers"][0]["end"] == 4
+    )
     assert all(0 <= c["start_time"] < c["end_time"] <= 4.0 + 1e-6 for c in trimmed["captions"])
 
 
@@ -164,8 +196,9 @@ async def test_trim_rejects_bad_windows(auth_client: AsyncClient, project: dict)
     for body in ({"start": 4.0, "end": 9.0}, {"start": 3.0, "end": 3.1}):
         response = await auth_client.post(f"/api/scenes/{scene['id']}/trim", json=body)
         assert response.status_code == 422
-    assert (await auth_client.post(
-        f"/api/scenes/{scene['id']}/trim", json={"start": 3.0, "end": 2.0})).status_code == 422
+    assert (
+        await auth_client.post(f"/api/scenes/{scene['id']}/trim", json={"start": 3.0, "end": 2.0})
+    ).status_code == 422
 
 
 # ---------------------------------------------------------------- restore/undo
@@ -182,7 +215,9 @@ async def test_restore_undoes_split_delete_and_edits(
     await auth_client.patch(f"/api/scenes/{a['id']}", json={"on_screen_text": "changed"})
     assert len(await _timeline(auth_client, project["id"])) == 2
 
-    response = await auth_client.put(f"/api/projects/{project['id']}/scenes/timeline", json=snapshot)
+    response = await auth_client.put(
+        f"/api/projects/{project['id']}/scenes/timeline", json=snapshot
+    )
     assert response.status_code == 200, response.text
     after = response.json()
     assert [s["id"] for s in after] == [s["id"] for s in before]
@@ -259,9 +294,20 @@ def _make_media(tmp_path: Path, name: str, args: list[str]) -> bytes:
 def mp4(tmp_path: Path) -> bytes:
     if not HAS_FFMPEG:
         pytest.skip("ffmpeg not installed")
-    return _make_media(tmp_path, "clip.mp4", [
-        "-f", "lavfi", "-i", "testsrc=duration=2:size=64x64:rate=10",
-        "-c:v", "libx264", "-pix_fmt", "yuv420p"])
+    return _make_media(
+        tmp_path,
+        "clip.mp4",
+        [
+            "-f",
+            "lavfi",
+            "-i",
+            "testsrc=duration=2:size=64x64:rate=10",
+            "-c:v",
+            "libx264",
+            "-pix_fmt",
+            "yuv420p",
+        ],
+    )
 
 
 @pytest.fixture
@@ -297,11 +343,13 @@ async def test_new_picture_replaces_a_clip_and_resets_the_trim(
 
     scene = await _scene(auth_client, project["id"], settings={"trim_start": 1.5})
     await auth_client.post(
-        "/api/assets/upload", data={"project_id": project["id"], "scene_id": scene["id"]},
+        "/api/assets/upload",
+        data={"project_id": project["id"], "scene_id": scene["id"]},
         files={"file": ("clip.mp4", mp4, "video/mp4")},
     )
     await auth_client.post(
-        "/api/assets/upload", data={"project_id": project["id"], "scene_id": scene["id"]},
+        "/api/assets/upload",
+        data={"project_id": project["id"], "scene_id": scene["id"]},
         files={"file": ("pic.png", PNG_1PX, "image/png")},
     )
     loaded = (await _timeline(auth_client, project["id"]))[0]
@@ -315,10 +363,13 @@ async def test_scene_can_only_use_its_own_projects_media(
     from tests.test_assets import PNG_1PX
 
     other = (await auth_client.post("/api/projects", json={"title": "other"})).json()
-    foreign = (await auth_client.post(
-        "/api/assets/upload", data={"project_id": other["id"]},
-        files={"file": ("pic.png", PNG_1PX, "image/png")},
-    )).json()
+    foreign = (
+        await auth_client.post(
+            "/api/assets/upload",
+            data={"project_id": other["id"]},
+            files={"file": ("pic.png", PNG_1PX, "image/png")},
+        )
+    ).json()
     scene = await _scene(auth_client, project["id"])
     response = await auth_client.patch(
         f"/api/scenes/{scene['id']}", json={"image_asset_id": foreign["id"]}
@@ -332,10 +383,13 @@ async def test_library_lists_uploads_and_a_scene_can_use_one(
 ) -> None:
     from tests.test_assets import PNG_1PX
 
-    uploaded = (await auth_client.post(
-        "/api/assets/upload", data={"project_id": project["id"]},
-        files={"file": ("pic.png", PNG_1PX, "image/png")},
-    )).json()
+    uploaded = (
+        await auth_client.post(
+            "/api/assets/upload",
+            data={"project_id": project["id"]},
+            files={"file": ("pic.png", PNG_1PX, "image/png")},
+        )
+    ).json()
     library = (await auth_client.get(f"/api/projects/{project['id']}/assets")).json()
     assert [a["id"] for a in library] == [uploaded["id"]]
 
@@ -358,13 +412,28 @@ async def test_music_upload_settings_remove_and_restore(
     body = response.json()
     assert body["music_url"] and body["music_name"] == "song.mp3"
     assert body["music_duration"] == pytest.approx(3.0, abs=0.3)
-    assert body["music"] == {"enabled": True, "volume": 1.0, "fade_in": 0.4,
-                             "fade_out": 1.0, "duck": True}
+    assert body["music"] == {
+        "enabled": True,
+        "volume": 1.0,
+        "fade_in": 0.4,
+        "fade_out": 1.0,
+        "duck": True,
+    }
 
-    tuned = (await auth_client.patch(
-        f"/api/projects/{project['id']}",
-        json={"music": {"enabled": True, "volume": 0.3, "fade_in": 2, "fade_out": 2, "duck": False}},
-    )).json()
+    tuned = (
+        await auth_client.patch(
+            f"/api/projects/{project['id']}",
+            json={
+                "music": {
+                    "enabled": True,
+                    "volume": 0.3,
+                    "fade_in": 2,
+                    "fade_out": 2,
+                    "duck": False,
+                }
+            },
+        )
+    ).json()
     assert tuned["music"]["volume"] == 0.3 and tuned["music"]["duck"] is False
     assert tuned["music_url"] == body["music_url"]  # settings change keeps the track
 
@@ -401,9 +470,11 @@ async def test_music_settings_are_validated(auth_client: AsyncClient, project: d
 async def test_duplicating_a_project_copies_its_music(
     auth_client: AsyncClient, project: dict, mp3: bytes
 ) -> None:
-    original = (await auth_client.post(
-        f"/api/projects/{project['id']}/music", files={"file": ("song.mp3", mp3, "audio/mpeg")}
-    )).json()
+    original = (
+        await auth_client.post(
+            f"/api/projects/{project['id']}/music", files={"file": ("song.mp3", mp3, "audio/mpeg")}
+        )
+    ).json()
     copy = (await auth_client.post(f"/api/projects/{project['id']}/duplicate")).json()
     assert copy["music_url"] and copy["music_url"] != original["music_url"]
     await auth_client.delete(f"/api/projects/{project['id']}")
@@ -417,14 +488,28 @@ async def test_hevc_video_is_converted_to_h264(
     if not HAS_FFMPEG:
         pytest.skip("ffmpeg not installed")
     try:
-        hevc = _make_media(tmp_path, "phone.mp4", [
-            "-f", "lavfi", "-i", "testsrc=duration=1:size=64x64:rate=10",
-            "-c:v", "libx265", "-pix_fmt", "yuv420p", "-tag:v", "hvc1"])
+        hevc = _make_media(
+            tmp_path,
+            "phone.mp4",
+            [
+                "-f",
+                "lavfi",
+                "-i",
+                "testsrc=duration=1:size=64x64:rate=10",
+                "-c:v",
+                "libx265",
+                "-pix_fmt",
+                "yuv420p",
+                "-tag:v",
+                "hvc1",
+            ],
+        )
     except subprocess.CalledProcessError:
         pytest.skip("this ffmpeg has no HEVC encoder")
 
     response = await auth_client.post(
-        "/api/assets/upload", data={"project_id": project["id"]},
+        "/api/assets/upload",
+        data={"project_id": project["id"]},
         files={"file": ("phone.mp4", hevc, "video/mp4")},
     )
     assert response.status_code == 201, response.text
@@ -450,14 +535,28 @@ async def test_render_payload_carries_editor_settings(
     from app.repositories.project_repository import ProjectRepository
     from app.services.render_payload import build_composition_payload
 
-    await _scene(auth_client, project["id"], settings={
-        "layers": [_layer(font_size=9.5)], "voice_volume": 0.4, "clip_volume": 0.7,
-        "trim_start": 1.25, "audio_start": 2.5, "media_fit": "contain", "ken_burns": False})
-    await auth_client.patch(f"/api/projects/{project['id']}",
-                            json={"music": {"volume": 0.2, "fade_in": 1, "fade_out": 3,
-                                            "duck": False, "enabled": True}})
-    row = (await session.execute(
-        select(Project).where(Project.id == uuid.UUID(project["id"])))).scalar_one()
+    await _scene(
+        auth_client,
+        project["id"],
+        settings={
+            "layers": [_layer(font_size=9.5)],
+            "voice_volume": 0.4,
+            "clip_volume": 0.7,
+            "trim_start": 1.25,
+            "audio_start": 2.5,
+            "media_fit": "contain",
+            "ken_burns": False,
+        },
+    )
+    await auth_client.patch(
+        f"/api/projects/{project['id']}",
+        json={
+            "music": {"volume": 0.2, "fade_in": 1, "fade_out": 3, "duck": False, "enabled": True}
+        },
+    )
+    row = (
+        await session.execute(select(Project).where(Project.id == uuid.UUID(project["id"])))
+    ).scalar_one()
     loaded = await ProjectRepository(session).get_for_owner(row.id, row.owner_id)
     payload = build_composition_payload(loaded)
 
@@ -466,8 +565,11 @@ async def test_render_payload_carries_editor_settings(
     assert (scene["voiceVolume"], scene["clipVolume"]) == (0.4, 0.7)
     assert (scene["trimStart"], scene["audioStart"]) == (1.25, 2.5)
     assert (scene["mediaFit"], scene["kenBurns"]) == ("contain", False)
-    assert (payload["project"]["musicVolume"], payload["project"]["musicFadeOut"],
-            payload["project"]["musicDuck"]) == (0.2, 3, False)
+    assert (
+        payload["project"]["musicVolume"],
+        payload["project"]["musicFadeOut"],
+        payload["project"]["musicDuck"],
+    ) == (0.2, 3, False)
 
 
 # ------------------------------------------------------------------- captions
@@ -492,8 +594,11 @@ async def test_captions_can_be_edited_by_hand(auth_client: AsyncClient, project:
 
 async def test_caption_end_is_clipped_to_the_scene(auth_client: AsyncClient, project: dict) -> None:
     scene = await _scene(auth_client, project["id"], duration=4.0)
-    body = (await auth_client.put(
-        f"/api/scenes/{scene['id']}/captions", json=_caps(("Long", 1.0, 99.0)))).json()
+    body = (
+        await auth_client.put(
+            f"/api/scenes/{scene['id']}/captions", json=_caps(("Long", 1.0, 99.0))
+        )
+    ).json()
     assert body["captions"][0]["end_time"] == 4.0
 
 
@@ -520,17 +625,21 @@ async def test_bad_captions_are_rejected_and_nothing_changes(
     assert "captions_edited" not in after["settings"]
 
 
-async def test_zero_length_caption_fails_validation(auth_client: AsyncClient, project: dict) -> None:
+async def test_zero_length_caption_fails_validation(
+    auth_client: AsyncClient, project: dict
+) -> None:
     scene = await _scene(auth_client, project["id"])
     response = await auth_client.put(
-        f"/api/scenes/{scene['id']}/captions", json=_caps(("A", 2.0, 2.0)))
+        f"/api/scenes/{scene['id']}/captions", json=_caps(("A", 2.0, 2.0))
+    )
     assert response.status_code == 422
 
 
 async def test_all_captions_can_be_removed(auth_client: AsyncClient, project: dict) -> None:
     scene = await _scene(auth_client, project["id"])
-    body = (await auth_client.put(
-        f"/api/scenes/{scene['id']}/captions", json={"captions": []})).json()
+    body = (
+        await auth_client.put(f"/api/scenes/{scene['id']}/captions", json={"captions": []})
+    ).json()
     assert body["captions"] == [] and body["settings"]["captions_edited"] is True
 
 
@@ -544,7 +653,9 @@ async def test_changing_the_length_keeps_edited_captions_and_clips_them(
     )
     body = (await auth_client.patch(f"/api/scenes/{scene['id']}", json={"duration": 5.0})).json()
     assert [(c["text"], c["start_time"], c["end_time"]) for c in body["captions"]] == [
-        ("Keep", 0.0, 2.0), ("Clip", 3.0, 5.0)]
+        ("Keep", 0.0, 2.0),
+        ("Clip", 3.0, 5.0),
+    ]
     assert body["settings"]["captions_edited"] is True
 
 
@@ -561,11 +672,18 @@ async def test_new_narration_rebuilds_captions_and_clears_the_edit_flag(
 ) -> None:
     scene = await _scene(auth_client, project["id"], duration=8.0)
     await auth_client.put(f"/api/scenes/{scene['id']}/captions", json=_caps(("Mine", 1.0, 2.0)))
-    body = (await auth_client.patch(
-        f"/api/scenes/{scene['id']}", json={"narration": "brand new narration here"})).json()
+    body = (
+        await auth_client.patch(
+            f"/api/scenes/{scene['id']}", json={"narration": "brand new narration here"}
+        )
+    ).json()
     assert "captions_edited" not in body["settings"]
     assert " ".join(c["text"] for c in body["captions"]).replace("  ", " ").split() == [
-        "brand", "new", "narration", "here"]
+        "brand",
+        "new",
+        "narration",
+        "here",
+    ]
 
 
 async def test_reset_returns_to_automatic_captions(auth_client: AsyncClient, project: dict) -> None:
@@ -581,15 +699,18 @@ async def test_edited_captions_survive_split_and_undo(
 ) -> None:
     scene = await _scene(auth_client, project["id"], duration=8.0)
     await auth_client.put(
-        f"/api/scenes/{scene['id']}/captions", json=_caps(("Hello there", 0.5, 3.0), ("World", 5.0, 7.0)))
+        f"/api/scenes/{scene['id']}/captions",
+        json=_caps(("Hello there", 0.5, 3.0), ("World", 5.0, 7.0)),
+    )
     snapshot = _snapshot(await _timeline(auth_client, project["id"]))
     scenes = (await auth_client.post(f"/api/scenes/{scene['id']}/split", json={"at": 4.0})).json()
     assert [c["text"] for c in scenes[0]["captions"]] == ["Hello there"]
     assert [(c["text"], c["start_time"]) for c in scenes[1]["captions"]] == [("World", 1.0)]
     assert scenes[0]["settings"]["captions_edited"] and scenes[1]["settings"]["captions_edited"]
 
-    restored = (await auth_client.put(
-        f"/api/projects/{project['id']}/scenes/timeline", json=snapshot)).json()
+    restored = (
+        await auth_client.put(f"/api/projects/{project['id']}/scenes/timeline", json=snapshot)
+    ).json()
     assert [c["text"] for c in restored[0]["captions"]] == ["Hello there", "World"]
     assert restored[0]["settings"]["captions_edited"] is True
 
@@ -606,12 +727,17 @@ async def test_edited_caption_text_reaches_the_renderer(
     from app.services.render_payload import build_composition_payload
 
     scene = await _scene(auth_client, project["id"], duration=6.0)
-    await auth_client.put(f"/api/scenes/{scene['id']}/captions", json=_caps(("Edited caption", 1.0, 4.0)))
-    row = (await session.execute(
-        select(Project).where(Project.id == uuid.UUID(project["id"])))).scalar_one()
+    await auth_client.put(
+        f"/api/scenes/{scene['id']}/captions", json=_caps(("Edited caption", 1.0, 4.0))
+    )
+    row = (
+        await session.execute(select(Project).where(Project.id == uuid.UUID(project["id"])))
+    ).scalar_one()
     loaded = await ProjectRepository(session).get_for_owner(row.id, row.owner_id)
     payload = build_composition_payload(loaded)
-    assert payload["scenes"][0]["captions"] == [{"text": "Edited caption", "start": 1.0, "end": 4.0}]
+    assert payload["scenes"][0]["captions"] == [
+        {"text": "Edited caption", "start": 1.0, "end": 4.0}
+    ]
 
 
 async def test_other_users_cannot_edit_captions(
@@ -619,8 +745,12 @@ async def test_other_users_cannot_edit_captions(
 ) -> None:
     scene = await _scene(auth_client, project["id"])
     stranger = await client.post(
-        "/api/auth/register", json={"email": "cap-stranger@example.com", "password": "supersecret123"})
+        "/api/auth/register",
+        json={"email": "cap-stranger@example.com", "password": "supersecret123"},
+    )
     response = await client.put(
-        f"/api/scenes/{scene['id']}/captions", json=_caps(("Nope", 0.0, 1.0)),
-        headers={"Authorization": f"Bearer {stranger.json()['access_token']}"})
+        f"/api/scenes/{scene['id']}/captions",
+        json=_caps(("Nope", 0.0, 1.0)),
+        headers={"Authorization": f"Bearer {stranger.json()['access_token']}"},
+    )
     assert response.status_code == 404

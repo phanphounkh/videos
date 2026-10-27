@@ -6,6 +6,7 @@ here, which is also what makes it unit-testable without HTTP.
 """
 
 import uuid
+from datetime import UTC, datetime
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -31,8 +32,9 @@ class AuthService:
         if await self.users.email_exists(email):
             # Deliberately explicit: registration cannot be silent about this, or
             # the user can never find out why signup failed.
-            raise ConflictError("An account with this email already exists.",
-                                code="EMAIL_ALREADY_REGISTERED")
+            raise ConflictError(
+                "An account with this email already exists.", code="EMAIL_ALREADY_REGISTERED"
+            )
 
         user = User(
             email=email,
@@ -51,11 +53,12 @@ class AuthService:
         # it was turns the login form into an account-enumeration oracle.
         if user is None or not verify_password(payload.password, user.hashed_password):
             log.info("login_failed", email_domain=payload.email.split("@")[-1])
-            raise AuthenticationError("Incorrect email or password.",
-                                      code="INVALID_CREDENTIALS")
+            raise AuthenticationError("Incorrect email or password.", code="INVALID_CREDENTIALS")
         if not user.is_active:
             raise AuthenticationError("This account is disabled.", code="ACCOUNT_DISABLED")
 
+        user.last_login_at = datetime.now(UTC)
+        await self.session.commit()
         log.info("login_succeeded", user_id=str(user.id))
         return self._token_for(user)
 

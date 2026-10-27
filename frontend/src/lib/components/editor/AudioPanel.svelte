@@ -2,6 +2,7 @@
   /** Sound: this scene's voice and clip volume, and the video's music track. */
   import Button from '$lib/components/ui/Button.svelte';
   import Field from '$lib/components/ui/Field.svelte';
+  import { t } from '$lib/i18n/index.svelte';
   import type { MusicSettings, Project, Scene } from '$lib/types/api';
 
   let {
@@ -49,11 +50,11 @@
   {#if scene}
     <section class="flex flex-col gap-3">
       <h3 class="section-title">
-        Scene {scene.scene_number} sound
+        {t('editor.audio.sceneSound', { n: scene.scene_number })}
       </h3>
       <Field
-        label={`Voice · ${pct(voiceDraft)}`}
-        hint={scene.audio_url ? undefined : 'No voice yet: generate it from the Scene tab.'}
+        label={t('editor.audio.voice', { pct: pct(voiceDraft) })}
+        hint={scene.audio_url ? undefined : t('editor.audio.noVoice')}
       >
         <input
           type="range"
@@ -67,7 +68,7 @@
         />
       </Field>
       {#if scene.video_url}
-        <Field label={`Clip's own sound · ${pct(clipDraft)}`} hint="Off by default so narration stays clear.">
+        <Field label={t('editor.audio.clipSound', { pct: pct(clipDraft) })} hint={t('editor.audio.clipHint')}>
           <input
             type="range"
             min="0"
@@ -83,7 +84,7 @@
   {/if}
 
   <section class="flex flex-col gap-3 border-t border-slate-800 pt-4">
-    <h3 class="section-title">Music</h3>
+    <h3 class="section-title">{t('editor.audio.music')}</h3>
 
     <label class="flex items-center gap-2 text-sm text-slate-300">
       <input
@@ -91,15 +92,15 @@
         checked={project.music.enabled}
         onchange={(e) => onmusic({ enabled: e.currentTarget.checked })}
       />
-      Background music
+      {t('editor.audio.bgMusic')}
     </label>
 
     <p class="text-xs text-slate-400">
       {#if project.music_url}
-        ♪ {project.music_name ?? 'Your track'}
-        {#if project.music_duration}· {project.music_duration.toFixed(0)}s (repeats to fill the video){/if}
+        ♪ {project.music_name ?? t('editor.audio.yourTrack')}
+        {#if project.music_duration}· {t('editor.audio.repeats', { n: project.music_duration.toFixed(0) })}{/if}
       {:else}
-        Using Sorya's built-in music.
+        {t('editor.audio.builtIn')}
       {/if}
     </p>
     {#if project.music_url}
@@ -109,10 +110,10 @@
 
     <div class="flex flex-wrap gap-2">
       <Button variant="secondary" size="sm" icon="upload" loading={busy} onclick={() => musicFile?.click()}>
-        {project.music_url ? 'Replace track' : 'Upload music'}
+        {project.music_url ? t('editor.audio.replace') : t('editor.audio.upload')}
       </Button>
       {#if project.music_url}
-        <Button variant="ghost" size="sm" onclick={onremoveMusic}>Use built-in</Button>
+        <Button variant="ghost" size="sm" onclick={onremoveMusic}>{t('editor.audio.useBuiltIn')}</Button>
       {/if}
     </div>
     <input
@@ -127,7 +128,7 @@
       }}
     />
 
-    <Field label={`Volume · ${pct(volumeDraft)}`}>
+    <Field label={t('editor.audio.volume', { pct: pct(volumeDraft) })}>
       <input
         type="range"
         min="0"
@@ -139,7 +140,7 @@
       />
     </Field>
     <div class="grid grid-cols-2 gap-3">
-      <Field label={`Fade in · ${fadeInDraft.toFixed(1)}s`}>
+      <Field label={t('editor.audio.fadeIn', { n: fadeInDraft.toFixed(1) })}>
         <input
           type="range"
           min="0"
@@ -150,7 +151,7 @@
           class={range}
         />
       </Field>
-      <Field label={`Fade out · ${fadeOutDraft.toFixed(1)}s`}>
+      <Field label={t('editor.audio.fadeOut', { n: fadeOutDraft.toFixed(1) })}>
         <input
           type="range"
           min="0"
@@ -168,7 +169,7 @@
         checked={project.music.duck}
         onchange={(e) => onmusic({ duck: e.currentTarget.checked })}
       />
-      Lower the music while someone speaks
+      {t('editor.audio.duck')}
     </label>
   </section>
 </div>

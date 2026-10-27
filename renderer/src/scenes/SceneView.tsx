@@ -12,9 +12,9 @@ import { Backdrop } from '../components/Backdrop';
 import { CaptionOverlay } from '../components/CaptionOverlay';
 import { FollowCta } from '../components/FollowCta';
 import { LayerView } from '../components/LayerView';
-import { Presenter } from '../components/Presenter';
+import { Host } from '../components/Host';
 import { Sticker } from '../components/Sticker';
-import type { Project, Scene } from '../schema';
+import type { AvatarPayload, Project, Scene } from '../schema';
 import {
   PHASE_THEME,
   TRANSITION_FRAMES,
@@ -89,7 +89,9 @@ export const SceneView: React.FC<{
   presenter?: boolean;
   /** Custom call-to-action button label; null keeps "Follow". */
   ctaText?: string | null;
-}> = ({ scene, language, projectTitle, sceneCount, showCta, purpose = 'story', presenter = true, ctaText = null }) => {
+  /** Which host to draw (built-in avatar or the user's photo). */
+  avatar?: AvatarPayload;
+}> = ({ scene, language, projectTitle, sceneCount, showCta, purpose = 'story', presenter = true, ctaText = null, avatar }) => {
   const frame = useCurrentFrame();
   const { fps, durationInFrames, width, height } = useVideoConfig();
   const short = Math.min(width, height);
@@ -183,7 +185,8 @@ export const SceneView: React.FC<{
 
           {presenter ? (
             <div style={{ position: 'absolute', ...layout.presenter, filter: 'drop-shadow(0 28px 40px rgba(0,0,0,.45))' }}>
-              <Presenter
+              <Host
+                avatar={avatar}
                 frame={frame}
                 fps={fps}
                 mouthOpen={mouthOpen}

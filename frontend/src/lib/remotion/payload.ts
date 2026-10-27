@@ -25,7 +25,10 @@ const speechOf = (scene: Scene): Speech => {
 
 export const buildPayload = (
   project: Pick<Project, 'title' | 'language' | 'fps' | 'width' | 'height'> &
-    Partial<Pick<Project, 'purpose' | 'presenter' | 'cta_text' | 'music' | 'music_url'>>,
+    Partial<Pick<Project, 'purpose' | 'presenter' | 'cta_text' | 'music' | 'music_url'>> & {
+      /** Which host draws the video (see components/avatars/hosts.svelte.ts). */
+      avatar?: { kind: 'builtin' | 'photo'; id: string; imageUrl: string | null; mode: 'mouth' | 'subtle' };
+    },
   scenes: Scene[]
 ): CompositionPayload => {
   const ordered = [...scenes].sort((a, b) => a.scene_number - b.scene_number);
@@ -38,6 +41,7 @@ export const buildPayload = (
       language: project.language,
       purpose: project.purpose ?? 'story',
       presenter: project.presenter ?? true,
+      avatar: project.avatar,
       ctaText: project.cta_text ?? null,
       music: project.music?.enabled ?? true,
       musicUrl: project.music_url ?? null,

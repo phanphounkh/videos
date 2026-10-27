@@ -9,13 +9,16 @@
    *   trim         drag a scene clip's left or right edge
    *   overlays     drag a text/sticker clip to move it in time, drag its edges to
    *                change when it appears and disappears (inside its own scene)
-   *   zoom         the toolbar's zoom buttons, or ctrl + wheel
+   *   zoom         the toolbar's zoom controls, or ctrl + wheel
+   *   track toggles  lock / eye / volume per track are editor-local: lock stops edits
+   *                on that track, eye and volume only change the preview (VideoEditor)
    *
    * Nothing here talks to the server. Drags are drawn from local state and,
    * when the pointer is released, ONE callback reports the result.
    */
-  import Icon from '$lib/components/ui/Icon.svelte';
+  import Icon, { type IconName } from '$lib/components/ui/Icon.svelte';
   import { clamp, layersOf, round } from '$lib/editor/layers';
+  import { t } from '$lib/i18n/index.svelte';
   import type { Layer, Project, Scene } from '$lib/types/api';
 
   let {
@@ -26,6 +29,10 @@
     selectedLayerId = $bindable<string | null>(null),
     zoom = $bindable<number | null>(null),
     pps = $bindable(40),
+    locked = {},
+    hidden = {},
+    muted = {},
+    ontoggle,
     onreorder,
     onresize,
     ontrim,
@@ -41,6 +48,11 @@
     zoom?: number | null;
     /** The pixels per second in use, for the toolbar's zoom buttons. */
     pps?: number;
+    /** Per-track editor-local flags, keyed title | video | voice | captions | music. */
+    locked?: Record<string, boolean>;
+    hidden?: Record<string, boolean>;
+    muted?: Record<string, boolean>;
+    ontoggle: (track: string, flag: 'locked' | 'hidden' | 'muted') => void;
     onreorder: (ids: string[]) => void;
     onresize: (id: string, duration: number) => void;
     ontrim: (id: string, start: number, end: number) => void;
@@ -52,8 +64,20 @@
   const MIN_CLIP = 0.5; // shortest scene
   const MIN_LAYER = 0.2; // shortest overlay
   const SNAP_PX = 8;
-  const ROW = { ruler: 28, lane: 28, video: 60, voice: 26, captions: 24, music: 26 };
-  const LABEL = 84; // width of the sticky track-name column
+  /** A stable pseudo-waveform for a scene's voice bar: the same scene always looks the same,
+   * and the bars thin out as you zoom out. It is a visual cue, not the audio's real shape. */
+  function bars(id: string, width: number): number[] {
+    const count = Math.max(4, Math.min(240, Math.round(width / 3)));
+    let seed = 0;
+    for (const ch of id) seed = (seed * 31 + ch.charCodeAt(0)) >>> 0;
+    return Array.from({ length: count }, () => {
+      seed = (seed * 1664525 + 1013904223) >>> 0;
+      return 2 + (seed / 2 ** 32) * 7;
+    });
+  }
+
+  const ROW = { ruler: 30, lane: 34, video: 64, voice: 36, captions: 34, music: 36 };
+  const LABEL = 116; // width of the sticky track-header column
 
   // ------------------------------------------------------------------ geometry
   let viewport = $state(800);
@@ -116,6 +140,11 @@
     const s = seconds - m * 60;
     const text = tickStep < 1 ? s.toFixed(1).padStart(4, '0') : String(Math.round(s)).padStart(2, '0');
     return `${m}:${text}`;
+  };
+
+  const badge = (seconds: number): string => {
+    const whole = Math.floor(seconds);
+    return `${String(Math.floor(whole / 60)).padStart(2, '0')}:${String(whole % 60).padStart(2, '0')}`;
   };
 
   // ------------------------------------------------------------- overlay lanes
@@ -201,7 +230,7 @@
 
   // ------------------------------------------------------------- scene clips
   function pressClip(event: PointerEvent, scene: Scene) {
-    if (event.button !== 0) return;
+    if (event.button !== 0 || locked.video) return; // a locked track lets the press scrub instead
     event.stopPropagation();
     selectedId = scene.id;
     selectedLayerId = null;
@@ -257,7 +286,7 @@
   });
 
   function pressEdge(event: PointerEvent, scene: Scene, edge: 'left' | 'right') {
-    if (event.button !== 0) return;
+    if (event.button !== 0 || locked.video) return;
     event.stopPropagation();
     event.preventDefault();
     selectedId = scene.id;
@@ -292,7 +321,7 @@
 
   // ------------------------------------------------------------ overlay clips
   function pressLayer(event: PointerEvent, clip: LayerClip, mode: 'lmove' | 'lleft' | 'lright') {
-    if (event.button !== 0) return;
+    if (event.button !== 0 || locked.title) return;
     event.stopPropagation();
     event.preventDefault();
     const { layer, scene } = clip;
@@ -361,13 +390,20 @@
   });
 
   const rowGap = 4;
-  const labels = $derived([
-    { name: 'Text', icon: 'type' as const, height: ROW.lane * laneCount + (laneCount - 1) * 2 },
-    { name: 'Video', icon: 'film' as const, height: ROW.video },
-    { name: 'Voice', icon: 'mic' as const, height: ROW.voice },
-    { name: 'Captions', icon: 'captions' as const, height: ROW.captions },
-    { name: 'Music', icon: 'music' as const, height: ROW.music }
+  type Flag = 'locked' | 'hidden' | 'muted';
+  const tracks = $derived<
+    { id: string; name: string; icon: IconName; height: number; flags: Flag[] }[]
+  >([
+    { id: 'title', name: t('editor.track.title'), icon: 'type', height: ROW.lane * laneCount + (laneCount - 1) * 2, flags: ['locked', 'hidden'] },
+    { id: 'video', name: t('editor.track.video'), icon: 'film', height: ROW.video, flags: ['locked', 'hidden', 'muted'] },
+    { id: 'voice', name: t('editor.track.voice'), icon: 'mic', height: ROW.voice, flags: ['locked', 'muted'] },
+    { id: 'captions', name: t('editor.track.captions'), icon: 'captions', height: ROW.captions, flags: ['locked', 'hidden'] },
+    { id: 'music', name: t('editor.track.music'), icon: 'music', height: ROW.music, flags: ['locked', 'muted'] }
   ]);
+  const bag = (flag: Flag) => (flag === 'locked' ? locked : flag === 'hidden' ? hidden : muted);
+  /** A track that is hidden or muted is dimmed in its lane. */
+  const dim = (id: string): boolean => !!(hidden[id] || muted[id]);
+  const laneTone = (id: string): string => (dim(id) ? 'opacity-40' : '') + (locked[id] ? ' [&_*]:cursor-not-allowed' : '');
 </script>
 
 <section class="flex h-full min-h-0 flex-col bg-slate-950">
@@ -390,14 +426,44 @@
         >
           {total.toFixed(1)}s
         </div>
-        {#each labels as label (label.name)}
-          <span
-            class="flex items-center gap-1.5 px-3 text-[11px] font-medium text-slate-400"
-            style="height:{label.height}px"
+        {#each tracks as track (track.id)}
+          <div
+            class="flex flex-col justify-center gap-0.5 px-2 {locked[track.id] ? 'text-slate-500' : 'text-slate-300'}"
+            style="height:{track.height}px"
           >
-            <Icon name={label.icon} size={13} />
-            {label.name}
-          </span>
+            <span class="flex items-center gap-1.5 text-[11px] font-medium">
+              <Icon name={track.icon} size={12} />
+              {track.name}
+            </span>
+            <span class="flex items-center gap-0.5">
+              {#each track.flags as flag (flag)}
+                {@const on = bag(flag)[track.id]}
+                {@const names = {
+                  locked: [t('editor.track.lock'), t('editor.track.unlock')],
+                  hidden: [t('editor.track.hide'), t('editor.track.show')],
+                  muted: [t('editor.track.mute'), t('editor.track.unmute')]
+                }[flag]}
+                <button
+                  class="grid h-5 w-5 place-items-center rounded transition hover:bg-slate-800 {on
+                    ? 'bg-sun-400/15 text-sun-300'
+                    : 'text-slate-500 hover:text-slate-200'}"
+                  title={`${on ? names[1] : names[0]}`}
+                  aria-label={`${track.name}: ${on ? names[1] : names[0]}`}
+                  aria-pressed={on}
+                  onclick={() => ontoggle(track.id, flag)}
+                >
+                  <Icon
+                    name={flag === 'locked'
+                      ? on ? 'lock' : 'unlock'
+                      : flag === 'hidden'
+                        ? on ? 'eyeOff' : 'eye'
+                        : on ? 'volumeOff' : 'volume'}
+                    size={12}
+                  />
+                </button>
+              {/each}
+            </span>
+          </div>
         {/each}
       </div>
 
@@ -421,21 +487,21 @@
         <!-- text and sticker lanes -->
         <!-- svelte-ignore a11y_no_static_element_interactions -->
         <div
-          class="relative rounded-md bg-slate-900/70"
+          class="relative rounded-md bg-slate-900/70 {laneTone('title')}"
           style="height:{ROW.lane * laneCount + (laneCount - 1) * 2}px"
           onpointerdown={startScrub}
         >
           {#if !layerClips.length}
             <span class="pointer-events-none absolute inset-0 flex items-center pl-3 text-[11px] text-slate-600">
-              Add text or a sticker from the toolbar
+              {t('editor.track.emptyTitle')}
             </span>
           {/if}
           {#each layerClips as clip (clip.layer.id)}
             {@const active = clip.layer.id === selectedLayerId}
             <div
-              class="group absolute overflow-hidden rounded-md text-[11px] font-medium text-white shadow-sm {clip.layer.type === 'sticker'
-                ? 'bg-amber-500/90 text-amber-950'
-                : 'bg-fuchsia-600/85'} {active ? 'ring-2 ring-sun-300' : ''}"
+              class="group absolute overflow-hidden rounded-md bg-[image:var(--sun-gradient)] text-[11px] font-semibold text-sun-950 shadow-sm {active
+                ? 'ring-2 ring-white'
+                : 'ring-1 ring-black/20'}"
               style="left:{px(clip.from)}px; width:{Math.max(px(clip.to - clip.from), 6)}px; top:{clip.lane *
                 (ROW.lane + 2) +
                 2}px; height:{ROW.lane - 4}px"
@@ -443,10 +509,15 @@
             >
               <!-- svelte-ignore a11y_no_static_element_interactions -->
               <div
-                class="h-full cursor-grab truncate px-2 leading-5 whitespace-nowrap select-none active:cursor-grabbing"
+                class="flex h-full cursor-grab items-center gap-1 truncate px-1.5 whitespace-nowrap select-none active:cursor-grabbing"
                 onpointerdown={(e) => pressLayer(e, clip, 'lmove')}
               >
-                {clip.layer.text}
+                {#if clip.layer.type === 'sticker'}
+                  <Icon name="smile" size={12} class="shrink-0" />
+                {:else}
+                  <span class="grid h-4 w-4 shrink-0 place-items-center rounded bg-black/15 text-[10px] font-bold">T</span>
+                {/if}
+                <span class="truncate">{clip.layer.text}</span>
               </div>
               <!-- svelte-ignore a11y_no_static_element_interactions -->
               <div
@@ -467,7 +538,7 @@
         <!-- video clips: the scenes -->
         <!-- svelte-ignore a11y_no_static_element_interactions -->
         <div
-          class="relative rounded-md bg-slate-900/70"
+          class="relative rounded-md bg-slate-900/70 {laneTone('video')}"
           style="height:{ROW.video}px"
           onpointerdown={startScrub}
         >
@@ -492,20 +563,34 @@
                 onpointerdown={(e) => pressClip(e, scene)}
               >
                 {#if scene.image_url}
-                  <img src={scene.image_url} alt="" draggable="false" class="absolute inset-0 h-full w-full object-cover opacity-75" />
+                  <!-- a filmstrip: the picture repeated along the clip -->
+                  <div
+                    class="absolute inset-0 bg-repeat-x opacity-90"
+                    style="background-image:url('{scene.image_url}'); background-size:auto 100%"
+                  ></div>
                 {:else if scene.video_url}
-                  <!-- svelte-ignore a11y_media_has_caption -->
-                  <video
-                    src={`${scene.video_url}#t=0.1`}
-                    preload="metadata"
-                    muted
-                    class="pointer-events-none absolute inset-0 h-full w-full object-cover opacity-75"
-                  ></video>
+                  <div class="pointer-events-none absolute inset-0 flex">
+                    {#each Array.from({ length: clamp(Math.ceil(px(lengthOf(scene)) / 96), 1, 8) }, (_, n) => n) as n (n)}
+                      <!-- svelte-ignore a11y_media_has_caption -->
+                      <video
+                        src={`${scene.video_url}#t=${0.1 + n * 0.5}`}
+                        preload="metadata"
+                        muted
+                        class="h-full min-w-0 flex-1 object-cover opacity-90"
+                      ></video>
+                    {/each}
+                  </div>
                 {:else}
-                  <div class="absolute inset-0 bg-gradient-to-br from-slate-600/80 to-slate-800"></div>
+                  <div
+                    class="absolute inset-0"
+                    style="background:linear-gradient(135deg, hsl({(scene.scene_number * 47) % 360} 38% 28%), hsl({(scene.scene_number * 47 + 40) % 360} 34% 15%))"
+                  ></div>
+                  {#if px(lengthOf(scene)) > 90 && scene.on_screen_text}
+                    <span class="absolute inset-x-2 top-1.5 line-clamp-1 text-[11px] leading-tight font-semibold text-white/85">{scene.on_screen_text}</span>
+                  {/if}
                 {/if}
-                <div class="absolute inset-x-0 top-0 h-7 bg-gradient-to-b from-black/60 to-transparent"></div>
-                <span class="relative m-1 inline-flex items-center gap-1 rounded bg-black/55 px-1.5 py-0.5 text-[10px] font-medium text-white/95">
+                <div class="absolute inset-x-0 bottom-0 h-7 bg-gradient-to-t from-black/70 to-transparent"></div>
+                <span class="absolute bottom-1 left-1 inline-flex items-center gap-1 rounded bg-black/55 px-1.5 py-0.5 text-[10px] font-medium text-white/95">
                   {scene.scene_number} · {lengthOf(scene).toFixed(1)}s
                   {#if scene.video_url}<Icon name="video" size={10} />{/if}
                 </span>
@@ -514,14 +599,14 @@
               <div
                 class="absolute inset-y-0 left-0 w-2 cursor-ew-resize bg-white/70 opacity-0 transition-opacity group-hover:opacity-100"
                 class:opacity-100={selected}
-                title="Drag to trim the start"
+                title={t('editor.track.trimStart')}
                 onpointerdown={(e) => pressEdge(e, scene, 'left')}
               ></div>
               <!-- svelte-ignore a11y_no_static_element_interactions -->
               <div
                 class="absolute inset-y-0 right-0 w-2 cursor-ew-resize bg-white/70 opacity-0 transition-opacity group-hover:opacity-100"
                 class:opacity-100={selected}
-                title="Drag to change the length"
+                title={t('editor.track.trimEnd')}
                 onpointerdown={(e) => pressEdge(e, scene, 'right')}
               ></div>
             </div>
@@ -537,23 +622,31 @@
         <!-- voice -->
         <!-- svelte-ignore a11y_no_static_element_interactions -->
         <div
-          class="relative rounded-md bg-slate-900/70"
+          class="relative rounded-md bg-slate-900/70 {laneTone('voice')}"
           style="height:{ROW.voice}px"
           onpointerdown={startScrub}
         >
           {#each ordered.filter((s) => s.audio_url) as scene (scene.id)}
             {@const volume = typeof scene.settings?.voice_volume === 'number' ? scene.settings.voice_volume : 1}
             <button
-              class="absolute top-1 bottom-1 overflow-hidden rounded bg-emerald-600/70 px-1.5 text-left text-[10px] font-medium whitespace-nowrap text-emerald-50"
+              class="absolute top-1 bottom-1 overflow-hidden rounded bg-teal-600/55 px-1.5 text-left text-[10px] font-medium whitespace-nowrap text-teal-50 ring-1 {scene.id === selectedId ? 'ring-teal-200/70' : 'ring-teal-300/20'}"
               style="left:{px(starts.get(scene.id) ?? 0)}px; width:{Math.max(px(lengthOf(scene)), 6)}px"
-              title={`Scene ${scene.scene_number} narration · volume ${Math.round(volume * 100)}%`}
+              title={t('editor.track.narrationTip', { n: scene.scene_number, pct: Math.round(volume * 100) })}
               onpointerdown={(e) => {
+                if (locked.voice) return;
                 e.stopPropagation();
                 selectedId = scene.id;
                 selectedLayerId = null;
               }}
             >
-              Voice{volume < 1 ? ` · ${Math.round(volume * 100)}%` : ''}
+              {#if px(lengthOf(scene)) > 24}
+                <svg class="pointer-events-none absolute inset-x-0.5 inset-y-0.5 h-[calc(100%-4px)] w-[calc(100%-4px)]" viewBox="0 0 {bars(scene.id, px(lengthOf(scene))).length} 10" preserveAspectRatio="none" aria-hidden="true">
+                  {#each bars(scene.id, px(lengthOf(scene))) as h, i (i)}
+                    <rect x={i + 0.2} y={5 - h / 2} width="0.6" height={h} rx="0.3" fill="rgb(204 251 241 / {0.4 + volume * 0.45})" />
+                  {/each}
+                </svg>
+              {/if}
+              {#if px(lengthOf(scene)) > 70 && volume < 1}<span class="relative">{Math.round(volume * 100)}%</span>{/if}
             </button>
           {/each}
         </div>
@@ -561,7 +654,7 @@
         <!-- captions (edited in the scene panel) -->
         <!-- svelte-ignore a11y_no_static_element_interactions -->
         <div
-          class="relative rounded-md bg-slate-900/70"
+          class="relative rounded-md bg-slate-900/70 {laneTone('captions')}"
           style="height:{ROW.captions}px"
           onpointerdown={startScrub}
         >
@@ -578,13 +671,14 @@
                     px(Math.min(caption.end_time, lengthOf(scene)) - caption.start_time),
                     3
                   )}px"
-                  title={`${caption.text} (click to edit)`}
+                  title={t('editor.track.captionTip', { text: caption.text })}
                   onpointerdown={(e) => {
+                    if (locked.captions) return;
                     e.stopPropagation();
                     oncaption(scene.id, caption.start_time);
                   }}
                 >
-                  {caption.text}
+                  {#if px(Math.min(caption.end_time, lengthOf(scene)) - caption.start_time) > 44}{caption.text}{/if}
                 </button>
               {/if}
             {/each}
@@ -594,16 +688,23 @@
         <!-- music -->
         <!-- svelte-ignore a11y_no_static_element_interactions -->
         <div
-          class="relative overflow-hidden rounded-md bg-slate-900/70"
+          class="relative overflow-hidden rounded-md bg-slate-900/70 {laneTone('music')}"
           style="height:{ROW.music}px"
           onpointerdown={startScrub}
         >
           {#if project.music.enabled && project.music.volume > 0}
             <div
-              class="pointer-events-none absolute top-1 bottom-1 left-0 overflow-hidden rounded bg-violet-600/60 px-2 text-[10px] leading-4 font-medium whitespace-nowrap text-violet-50"
+              class="pointer-events-none absolute top-1 bottom-1 left-0 overflow-hidden rounded bg-teal-600/55 px-2 text-[10px] leading-5 font-medium whitespace-nowrap text-teal-50 ring-1 ring-teal-300/20"
               style="width:{px(total)}px"
             >
-              ♪ {project.music_name ?? 'Built-in music'} · {Math.round(project.music.volume * 100)}%
+              {#if px(total) > 24}
+                <svg class="absolute inset-x-0.5 inset-y-0.5 h-[calc(100%-4px)] w-[calc(100%-4px)]" viewBox="0 0 {bars('music', px(total)).length} 10" preserveAspectRatio="none" aria-hidden="true">
+                  {#each bars('music', px(total)) as h, i (i)}
+                    <rect x={i + 0.2} y={5 - h / 2} width="0.6" height={h} rx="0.3" fill="rgb(204 251 241 / 0.45)" />
+                  {/each}
+                </svg>
+              {/if}
+              <span class="relative">♪ {project.music_name ?? t('editor.track.builtIn')} · {Math.round(project.music.volume * 100)}%</span>
             </div>
             {#each Array.from({ length: loops }, (_, i) => i + 1) as n (n)}
               <div
@@ -613,17 +714,20 @@
             {/each}
           {:else}
             <span class="pointer-events-none absolute inset-0 flex items-center pl-3 text-[11px] text-slate-600">
-              Music off
+              {t('editor.track.musicOff')}
             </span>
           {/if}
         </div>
 
         <!-- playhead -->
         <div
-          class="pointer-events-none absolute top-0 bottom-0 z-40 w-px bg-white shadow-[0_0_0_1px_rgb(0_0_0/0.35)]"
+          class="pointer-events-none absolute top-0 bottom-0 z-40 w-0.5 -translate-x-1/2 bg-sun-400"
           style="left:{px(time)}px"
         >
-          <div class="absolute -top-px -left-[7px] h-3.5 w-[15px] rounded-b-md bg-sun-400"></div>
+          <span
+            class="absolute top-1 left-1/2 -translate-x-1/2 rounded bg-sun-400 px-1.5 py-0.5 font-mono text-[10px] leading-none font-semibold text-sun-950 tabular-nums"
+            >{badge(time)}</span
+          >
         </div>
       </div>
     </div>

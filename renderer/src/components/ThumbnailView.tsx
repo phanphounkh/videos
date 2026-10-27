@@ -3,13 +3,13 @@
  *
  * Built from the same parts as the video itself (backdrop, host, sticker, badge,
  * call-to-action chip) so a thumbnail always looks like the video it belongs to;
- * only the text changes. It is drawn at one settled frame, so it is a still, not
- * an animation.
+ * only the text changes. It is drawn at one settled frame, so it is a still, unless
+ * `animate` is set (hover previews in the web app), which plays it.
  */
 import React from 'react';
-import { AbsoluteFill, useVideoConfig } from 'remotion';
+import { AbsoluteFill, useCurrentFrame, useVideoConfig } from 'remotion';
 import { Backdrop } from './Backdrop';
-import { Presenter } from './Presenter';
+import { Host } from './Host';
 import { Sticker } from './Sticker';
 import type { Scene, ThumbnailPayload } from '../schema';
 import { PHASE_THEME, fontFor } from '../story';
@@ -23,8 +23,14 @@ const sizeFor = (headline: string, short: number): number => {
   return short * scale;
 };
 
-export const ThumbnailView: React.FC<ThumbnailPayload> = ({ project, headline, kicker, imageUrl, mood, cta }) => {
+export const ThumbnailView: React.FC<ThumbnailPayload> = ({ project, headline, kicker, imageUrl, mood, cta, animate }) => {
   const { width, height, fps } = useVideoConfig();
+  // A still is one settled frame. With `animate` the same picture comes alive: the host
+  // talks (a made-up syllable rhythm), blinks and sways, and the backdrop drifts.
+  const current = useCurrentFrame();
+  const frame = animate ? STILL_FRAME + current : STILL_FRAME;
+  const mouth = animate ? Math.abs(Math.sin(current * 0.62)) * (0.35 + 0.65 * Math.abs(Math.sin(current * 0.115))) : 0.55;
+  const loud = animate ? mouth * 0.85 : 0.6;
   const short = Math.min(width, height);
   const theme = PHASE_THEME[mood];
   const wide = width > height * 1.2;
@@ -87,20 +93,21 @@ export const ThumbnailView: React.FC<ThumbnailPayload> = ({ project, headline, k
         scene={scene}
         theme={theme}
         phase={mood}
-        frame={STILL_FRAME}
+        frame={frame}
         durationInFrames={fps * 3}
-        loudness={0.5}
+        loudness={animate ? loud * 0.8 : 0.5}
         spot={layout.spot}
         spotlight={host}
       />
 
       {layout.presenter ? (
         <div style={{ position: 'absolute', ...layout.presenter, filter: 'drop-shadow(0 28px 40px rgba(0,0,0,.45))' }}>
-          <Presenter
-            frame={STILL_FRAME}
+          <Host
+            avatar={project.avatar}
+            frame={frame}
             fps={fps}
-            mouthOpen={0.55}
-            loudness={0.6}
+            mouthOpen={mouth}
+            loudness={loud}
             talking
             phase={mood}
             theme={theme}
@@ -139,7 +146,7 @@ export const ThumbnailView: React.FC<ThumbnailPayload> = ({ project, headline, k
         text={headline}
         theme={theme}
         language={project.language}
-        frame={STILL_FRAME}
+        frame={frame}
         fps={fps}
         window={{ start: 0, end: 100000 }}
         box={layout.sticker}

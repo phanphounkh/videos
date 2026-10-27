@@ -13,6 +13,7 @@ from typing import Any
 from app.core.logging import get_logger
 from app.models.project import Project
 from app.schemas.project import MusicSettings
+from app.services.avatars import sync_spec
 from app.services.caption_service import speech_settings
 from app.services.storage.urls import renderer_url
 
@@ -41,7 +42,9 @@ def _layers(settings: dict[str, Any]) -> list[dict[str, Any]]:
     ]
 
 
-def build_composition_payload(project: Project) -> dict[str, Any]:
+def build_composition_payload(
+    project: Project, avatar: dict[str, Any] | None = None
+) -> dict[str, Any]:
     width, height = project.dimensions
     scenes: list[dict[str, Any]] = []
 
@@ -126,6 +129,8 @@ def build_composition_payload(project: Project) -> dict[str, Any]:
         },
         "scenes": scenes,
     }
+    if project.presenter:
+        payload["project"]["avatar"] = sync_spec(project, avatar)
     log.info(
         "render_payload_built",
         project_id=str(project.id),

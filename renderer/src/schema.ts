@@ -80,6 +80,19 @@ export const sceneSchema = z.object({
   kenBurns: z.boolean().default(true)
 });
 
+/**
+ * Which host appears. 'builtin' picks one of the avatars in avatars.ts by id (unknown ids
+ * fall back to the original cartoon host); 'photo' shows the user's uploaded picture.
+ * mode (photo only): 'mouth' draws an animated mouth over the face, 'subtle' only breathes
+ * and pulses with the voice.
+ */
+export const avatarSchema = z.object({
+  kind: z.enum(['builtin', 'photo']).default('builtin'),
+  id: z.string().default('toon-m-young'),
+  imageUrl: z.string().nullable().default(null),
+  mode: z.enum(['mouth', 'subtle']).default('mouth')
+});
+
 export const projectSchema = z.object({
   width: z.number().int().positive().default(1920),
   height: z.number().int().positive().default(1080),
@@ -104,7 +117,9 @@ export const projectSchema = z.object({
   musicFadeIn: z.number().min(0).default(0.4),
   musicFadeOut: z.number().min(0).default(1),
   /** Lower the music while someone speaks. */
-  musicDuck: z.boolean().default(true)
+  musicDuck: z.boolean().default(true),
+  /** The host. */
+  avatar: avatarSchema.default({ kind: 'builtin', id: 'toon-m-young', imageUrl: null, mode: 'mouth' })
 });
 
 export const compositionSchema = z.object({
@@ -129,9 +144,12 @@ export const thumbnailSchema = z.object({
   imageUrl: z.string().nullable().default(null),
   mood: z.enum(['hook', 'setup', 'rising', 'twist', 'climax', 'payoff']).default('hook'),
   /** Optional button-like chip at the bottom, e.g. "Try it today". */
-  cta: z.string().nullable().default(null)
+  cta: z.string().nullable().default(null),
+  /** Play the host and the backdrop instead of one settled frame (used for hover previews). */
+  animate: z.boolean().default(false)
 });
 
+export type AvatarPayload = z.infer<typeof avatarSchema>;
 export type Caption = z.infer<typeof captionSchema>;
 export type Word = z.infer<typeof wordSchema>;
 export type Scene = z.infer<typeof sceneSchema>;
@@ -156,7 +174,8 @@ export const emptyComposition: CompositionPayload = {
     musicVolume: 1,
     musicFadeIn: 0.4,
     musicFadeOut: 1,
-    musicDuck: true
+    musicDuck: true,
+    avatar: { kind: 'builtin', id: 'toon-m-young', imageUrl: null, mode: 'mouth' }
   },
   scenes: [
     {
@@ -192,5 +211,6 @@ export const emptyThumbnail: ThumbnailPayload = {
   kicker: 'SORYA',
   imageUrl: null,
   mood: 'hook',
-  cta: null
+  cta: null,
+  animate: false
 };

@@ -8,8 +8,9 @@ Create Date: 2026-10-22
 from collections.abc import Sequence
 
 import sqlalchemy as sa
-from alembic import op
 from sqlalchemy.dialects import postgresql
+
+from alembic import op
 
 revision: str = "0003_project_music"
 down_revision: str | None = "0002_video_purpose"

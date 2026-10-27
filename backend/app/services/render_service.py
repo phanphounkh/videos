@@ -26,12 +26,16 @@ from app.core.exceptions import ConflictError, NotFoundError, ProviderError
 from app.core.logging import get_logger
 from app.models.asset import Asset
 from app.models.enums import AssetSource, AssetType, ProjectStatus, RenderStatus
+from app.models.project import Project
 from app.models.render_job import RenderJob
 from app.repositories.project_repository import ProjectRepository
 from app.repositories.render_job_repository import RenderJobRepository
+from app.services import usage
+from app.services.avatars import avatar_spec
 from app.services.project_service import ProjectService
 from app.services.render_payload import build_composition_payload
 from app.services.storage import get_storage, render_key
+from app.services.telemetry import Event, record
 
 log = get_logger(__name__)
 
@@ -54,6 +58,7 @@ class RenderService:
     # ------------------------------------------------- called from the request
     async def create_job(self, project_id: uuid.UUID, owner_id: uuid.UUID) -> RenderJob:
         project = await self.projects.get(project_id, owner_id)
+        await usage.ensure_within(self.session, owner_id, "exports")
 
         if not project.scenes:
             raise ConflictError(
@@ -61,8 +66,9 @@ class RenderService:
                 code="PROJECT_EMPTY",
             )
         if any(scene.duration <= 0 for scene in project.scenes):
-            raise ConflictError("Every scene must have a positive duration.",
-                                code="INVALID_TIMELINE")
+            raise ConflictError(
+                "Every scene must have a positive duration.", code="INVALID_TIMELINE"
+            )
         if project.duration > 300:
             raise ConflictError(
                 "Videos can be at most 5 minutes long. Shorten or remove scenes before export.",
@@ -92,6 +98,18 @@ class RenderService:
             await self.session.commit()
             log.warning("render_enqueue_failed", job_id=str(job.id), error=str(exc)[:300])
             raise ProviderError(message, code="QUEUE_UNAVAILABLE") from exc
+        await usage.add(owner_id, "exports")
+        record(
+            Event(
+                name="export_started",
+                user_id=str(owner_id),
+                properties={
+                    "project_id": str(project_id),
+                    "scenes": len(project.scenes),
+                    "video_seconds": round(project.duration, 1),
+                },
+            )
+        )
         log.info("render_queued", job_id=str(job.id), project_id=str(project_id))
         return job
 
@@ -121,7 +139,9 @@ class RenderService:
 
         collected_logs: list[str] = []
         try:
-            payload = build_composition_payload(project)
+            payload = build_composition_payload(
+                project, await avatar_spec(self.session, project) if project.presenter else None
+            )
             output_path, logs = await self._run_renderer(job, payload)
             collected_logs = logs
 
@@ -156,6 +176,7 @@ class RenderService:
             job.logs = self._tail(collected_logs)
             project.status = ProjectStatus.COMPLETED
             await self.session.commit()
+            self._measure(job, project, ok=True, output_bytes=stored.size_bytes)
 
             log.info(
                 "render_completed",
@@ -169,9 +190,7 @@ class RenderService:
         finally:
             shutil.rmtree(Path(tempfile.gettempdir()) / f"avs-render-{job.id}", ignore_errors=True)
 
-    async def _run_renderer(
-        self, job: RenderJob, payload: dict
-    ) -> tuple[str, list[str]]:
+    async def _run_renderer(self, job: RenderJob, payload: dict) -> tuple[str, list[str]]:
         """Spawns the Remotion CLI and streams its JSON progress lines."""
         settings = get_settings()
         renderer_dir, entry = await asyncio.to_thread(_resolve_renderer, settings.renderer_dir)
@@ -198,7 +217,11 @@ class RenderService:
             raise ProviderError("npx (Node.js) is not installed.", code="NODE_NOT_FOUND")
 
         process = await asyncio.create_subprocess_exec(
-            npx, "tsx", str(entry), str(payload_path), str(output_path),
+            npx,
+            "tsx",
+            str(entry),
+            str(payload_path),
+            str(output_path),
             cwd=str(renderer_dir),
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.STDOUT,
@@ -224,6 +247,7 @@ class RenderService:
                 f"Last output: {' | '.join(logs[-3:])[:500]}",
                 code="RENDER_FAILED",
             )
+
         def _has_output() -> bool:
             return output_path.exists() and output_path.stat().st_size > 0
 
@@ -270,6 +294,45 @@ class RenderService:
 
         await process.wait()
 
+    @staticmethod
+    def _measure(
+        job: RenderJob,
+        project: Project,
+        *,
+        ok: bool,
+        error: str | None = None,
+        output_bytes: int | None = None,
+    ) -> None:
+        """One telemetry event per finished render: how long it took, how long it
+        waited for a worker, and how big the video was."""
+        finished = datetime.now(UTC)
+        started = job.started_at
+        props: dict[str, object] = {
+            "project_id": str(project.id),
+            "scenes": len(project.scenes),
+            "video_seconds": round(project.duration, 2),
+            "aspect_ratio": str(project.aspect_ratio),
+        }
+        if started is not None:
+            waited = max(0.0, (started - job.created_at).total_seconds())
+            props["queue_wait_ms"] = round(waited * 1000)
+        if output_bytes is not None:
+            props["output_bytes"] = output_bytes
+        if error:
+            props["error_code"] = error[:64]
+        record(
+            Event(
+                name="render_job",
+                level="info" if ok else "error",
+                outcome="ok" if ok else "error",
+                duration_ms=(
+                    round((finished - started).total_seconds() * 1000) if started else None
+                ),
+                user_id=str(project.owner_id),
+                properties=props,
+            )
+        )
+
     async def _fail(self, job: RenderJob, message: str, logs: list[str] | None = None) -> None:
         job.status = RenderStatus.FAILED
         job.error_message = message[:2000]
@@ -282,9 +345,28 @@ class RenderService:
             # render failed, so the user can fix something and retry.
             project.status = ProjectStatus.READY
         await self.session.commit()
+        if project is not None:
+            self._measure(job, project, ok=False, error=_error_code(message))
         log.warning("render_failed", job_id=str(job.id), error=message[:300])
 
     @staticmethod
     def _tail(logs: list[str]) -> str:
         text = "\n".join(logs)
         return text[-MAX_LOG_CHARS:]
+
+
+def _error_code(message: str) -> str:
+    """A short, groupable label for a render failure (the message itself varies)."""
+    text = message.lower()
+    for needle, code in (
+        ("timeout", "timeout"),
+        ("exceeded", "timeout"),
+        ("no output", "no_output"),
+        ("renderer exited", "renderer_exit"),
+        ("not found", "not_found"),
+        ("npx", "node_missing"),
+        ("memory", "out_of_memory"),
+    ):
+        if needle in text:
+            return code
+    return "render_failed"

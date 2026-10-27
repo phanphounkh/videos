@@ -1,0 +1,38 @@
+/** Words every page uses. */
+export default {
+  'common.save': 'Save',
+  'common.saved': 'Saved',
+  'common.cancel': 'Cancel',
+  'common.delete': 'Delete',
+  'common.close': 'Close',
+  'common.loading': 'Loading…',
+  'common.search': 'Search',
+  'common.seeAll': 'See all',
+  'common.viewAll': 'View all',
+  'common.back': 'Back',
+  'common.next': 'Next',
+  'common.rename': 'Rename',
+  'common.duplicate': 'Duplicate',
+  'common.restore': 'Restore',
+  'common.open': 'Open',
+  'common.create': 'Create',
+  'common.clear': 'Clear',
+  'common.dismiss': 'Dismiss',
+  'common.optional': 'Optional',
+  'common.language': 'Language',
+  'common.name': 'Name',
+  'common.email': 'Email',
+  'common.password': 'Password',
+  'common.untitled': 'Untitled video',
+
+  'time.justNow': 'just now',
+  'time.minAgo': '{n} min ago',
+  'time.hourAgo': '{n} h ago',
+  'time.dayAgo': '{n} d ago',
+  'time.seconds': '{n}s',
+  'time.minutes': '{n} min',
+
+  'lang.interface': 'Interface language',
+  'lang.interfaceHint': 'The language of menus and buttons.',
+  'lang.switch': 'Language'
+} as Record<string, string>;

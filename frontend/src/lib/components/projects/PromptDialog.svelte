@@ -9,13 +9,21 @@
     audience: string;
     purpose: string;
     presenter: boolean;
+    /** The chosen host, or null for automatic. */
+    avatar: string | null;
     cta_text: string | null;
   };
 </script>
 
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { loadPreferences } from '$lib/stores/preferences';
+  import { onMount, untrack } from 'svelte';
+  import { t, tn } from '$lib/i18n/index.svelte';
   import { api } from '$lib/api';
+  import AvatarImage from '$lib/components/avatars/AvatarImage.svelte';
+  import AvatarPicker from '$lib/components/avatars/AvatarPicker.svelte';
+  import { effectiveHost, hostInfo, hostPrefs, loadHosts } from '$lib/components/avatars/hosts.svelte';
+  import Modal from '$lib/components/ui/Modal.svelte';
   import Button from '$lib/components/ui/Button.svelte';
   import ErrorBanner from '$lib/components/ui/ErrorBanner.svelte';
   import Field from '$lib/components/ui/Field.svelte';
@@ -27,29 +35,47 @@
   let {
     busy = false,
     error = null,
+    initial = {},
     onsubmit
   }: {
     busy?: boolean;
     error?: unknown;
+    /** Pre-selected kind of video and prompt, e.g. from the Home page. */
+    initial?: { purpose?: string; prompt?: string; aspect?: string; duration?: number };
     onsubmit: (value: CreateValue) => void;
   } = $props();
 
   let purposes = $state<PurposeTemplate[]>([]);
-  let purposeKey = $state('story');
-  let prompt = $state('');
+  // Only the starting values matter; later changes to `initial` must not reset the form.
+  const start = untrack(() => initial);
+  const preferences = loadPreferences();
+  let purposeKey = $state(start.purpose ?? preferences.purpose);
+  let prompt = $state(start.prompt ?? '');
   let duration = $state(60);
-  let language = $state('en');
+  let language = $state<string>(preferences.language);
   let style = $state('storytelling');
   let aspect = $state('9:16');
   let tone = $state('');
   let audience = $state('');
   let presenter = $state(true);
   let ctaText = $state('');
+  // null is "automatic": the favourite adapted to the video type, or the type's own host.
+  let avatar = $state<string | null>(null);
+  let choosingHost = $state(false);
+  const resolvedHost = $derived(avatar ?? effectiveHost(purposeKey, hostPrefs()));
+  const hostName = $derived(hostInfo(resolvedHost)?.name ?? '');
   // An example is only a placeholder until the user types; switching purpose
   // swaps it again, but never overwrites text the user wrote.
-  let promptTouched = false;
+  let promptTouched = !!start.prompt;
 
   const current = $derived(purposes.find((p) => p.key === purposeKey) ?? null);
+  /** A word from the dictionary, or the server's own text when there is no entry for it. */
+  const word = (key: string, fallback: string) => {
+    const s = t(key);
+    return s === key ? fallback : s;
+  };
+  const labelOf = (p: PurposeTemplate) => word(`purpose.${p.key}.label`, p.label);
+  const descOf = (p: PurposeTemplate) => word(`purpose.${p.key}.description`, p.description);
   const styles = [
     'social_media',
     'storytelling',
@@ -77,18 +103,18 @@
     { value: 180, label: '3m' },
     { value: 300, label: '5m' }
   ];
-  const aspectOptions = [
-    { value: '9:16', label: '9:16', hint: 'Vertical: Reels, TikTok, Shorts' },
-    { value: '16:9', label: '16:9', hint: 'Landscape: YouTube, websites' },
-    { value: '1:1', label: '1:1', hint: 'Square: feeds' }
-  ];
+  const aspectOptions = $derived([
+    { value: '9:16', label: '9:16', hint: t('ai.aspect.vertical') },
+    { value: '16:9', label: '16:9', hint: t('ai.aspect.landscape') },
+    { value: '1:1', label: '1:1', hint: t('ai.aspect.square') }
+  ]);
   const languageOptions = [
     { value: 'en', label: 'English' },
     { value: 'km', label: 'ខ្មែរ' }
   ];
 
   const prettyDuration = $derived(
-    duration < 60 ? `${duration} seconds` : `${duration / 60} minute${duration === 60 ? '' : 's'}`
+    duration < 60 ? t('ai.durationSeconds', { n: duration }) : tn('ai.durationMinute', duration / 60)
   );
   const ratio = $derived(aspect.split(':').map(Number) as [number, number]);
   const portrait = $derived(ratio[1] > ratio[0]);
@@ -106,10 +132,14 @@
   }
 
   onMount(async () => {
+    void loadHosts();
     try {
       purposes = await api.purposes();
       const first = purposes.find((p) => p.key === purposeKey) ?? purposes[0];
       if (first) choose(first);
+      // A template's own shape and length win over the purpose's defaults.
+      if (start.aspect) aspect = start.aspect;
+      if (start.duration) duration = start.duration;
     } catch {
       // The form still works without templates: it creates a plain story.
     }
@@ -127,6 +157,7 @@
       audience,
       purpose: purposeKey,
       presenter,
+      avatar: presenter ? avatar : null,
       cta_text: ctaText.trim() || null
     });
   }
@@ -138,21 +169,20 @@
 <form class="grid gap-8 lg:grid-cols-[minmax(0,1fr)_21rem] lg:items-start" onsubmit={submit}>
   <div class="flex min-w-0 flex-col gap-9">
     <header>
-      <h1 class="text-[28px] leading-tight font-semibold tracking-tight text-slate-50">
-        Create a video
+      <h1 class="text-[30px] leading-tight font-bold tracking-tight text-slate-50">
+        {t('ai.title')}
       </h1>
       <p class="mt-1.5 max-w-xl text-sm leading-relaxed text-slate-400">
-        Pick what it is for, describe it, and Sorya writes the script, scenes, voice and captions.
-        You can edit everything afterwards.
+        {t('ai.intro')}
       </p>
     </header>
 
     <!-- 1 · purpose -->
     <section class="flex flex-col gap-3.5">
       <h2 class="flex items-center gap-2.5 text-base font-semibold text-slate-100">
-        <span class={step}>1</span> What is it for?
+        <span class={step}>1</span> {t('ai.step1')}
       </h2>
-      <div class="grid grid-cols-2 gap-3 xl:grid-cols-3" role="radiogroup" aria-label="Purpose">
+      <div class="grid grid-cols-2 gap-3 xl:grid-cols-3" role="radiogroup" aria-label={t('ai.purpose')}>
         {#if !purposes.length}
           {#each [0, 1, 2] as n (n)}
             <div class="h-28 animate-pulse rounded-xl border border-slate-800 bg-slate-900"></div>
@@ -176,8 +206,8 @@
             >
               <Icon name={iconOf(template.key)} size={18} />
             </span>
-            <span class="text-sm font-semibold text-slate-50">{template.label}</span>
-            <span class="text-xs leading-relaxed text-slate-400">{template.description}</span>
+            <span class="text-sm font-semibold text-slate-50">{labelOf(template)}</span>
+            <span class="text-xs leading-relaxed text-slate-400">{descOf(template)}</span>
           </button>
         {/each}
       </div>
@@ -187,7 +217,7 @@
     <section class="flex flex-col gap-3.5">
       <h2 class="flex items-center gap-2.5 text-base font-semibold text-slate-100">
         <span class={step}>2</span>
-        {current?.key === 'product_demo' ? 'Describe your product' : 'Describe your video'}
+        {current?.key === 'product_demo' ? t('ai.step2Product') : t('ai.step2')}
       </h2>
       <div class="flex flex-col gap-2">
         <textarea
@@ -196,9 +226,9 @@
           rows="4"
           required
           maxlength="2000"
-          aria-label="Prompt"
+          aria-label={t('ai.prompt')}
           class="w-full resize-y px-3.5 py-3 text-[15px] leading-relaxed"
-          placeholder={current?.example_prompt ?? 'What is the video about?'}
+          placeholder={current?.example_prompt ?? t('ai.promptPlaceholder')}
         ></textarea>
         <div class="flex items-center justify-between gap-3 text-xs text-slate-500">
           {#if current}
@@ -210,7 +240,7 @@
                 promptTouched = false;
               }}
             >
-              <Icon name="sparkles" size={13} /> Use an example
+              <Icon name="sparkles" size={13} /> {t('ai.useExample')}
             </button>
           {:else}
             <span></span>
@@ -223,25 +253,25 @@
     <!-- 3 · format -->
     <section class="flex flex-col gap-4">
       <h2 class="flex items-center gap-2.5 text-base font-semibold text-slate-100">
-        <span class={step}>3</span> Format
+        <span class={step}>3</span> {t('ai.step3')}
       </h2>
       <div class="grid gap-4 sm:grid-cols-2">
-        <Field label="Language">
-          <Segmented options={languageOptions} bind:value={language} label="Language" />
+        <Field label={t('ai.language')}>
+          <Segmented options={languageOptions} bind:value={language} label={t('ai.language')} />
         </Field>
-        <Field label="Shape">
-          <Segmented options={aspectOptions} bind:value={aspect} label="Aspect ratio" />
+        <Field label={t('ai.shape')}>
+          <Segmented options={aspectOptions} bind:value={aspect} label={t('ai.aspectRatio')} />
         </Field>
       </div>
-      <Field label="Length">
-        <Segmented options={durationOptions} bind:value={duration} label="Duration" />
+      <Field label={t('ai.length')}>
+        <Segmented options={durationOptions} bind:value={duration} label={t('ai.duration')} />
       </Field>
 
       <details class="group surface">
         <summary
           class="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3 text-sm font-medium text-slate-200 select-none"
         >
-          More options
+          {t('ai.moreOptions')}
           <Icon
             name="chevronDown"
             size={16}
@@ -249,33 +279,48 @@
           />
         </summary>
         <div class="grid gap-4 border-t border-slate-800 p-4 sm:grid-cols-2">
-          <Field label="Style">
+          <Field label={t('ai.style')}>
             <select bind:value={style} class="h-10 w-full px-3 text-sm">
               {#each styles as value (value)}
-                <option {value}>{value.replace('_', ' ')}</option>
+                <option {value}>{word(`ai.style.${value}`, value.replace('_', ' '))}</option>
               {/each}
             </select>
           </Field>
-          <Field label="Closing button" hint="Shown at the end, e.g. “Shop now”. Empty keeps “Follow”.">
+          <Field label={t('ai.cta')} hint={t('ai.ctaHint')}>
             <input
               bind:value={ctaText}
               class="h-10 w-full px-3 text-sm"
               maxlength="60"
-              placeholder="Follow"
+              placeholder={t('ai.ctaPlaceholder')}
             />
           </Field>
-          <Field label="Tone">
+          <Field label={t('ai.tone')}>
             <input bind:value={tone} class="h-10 w-full px-3 text-sm" maxlength="64" />
           </Field>
-          <Field label="Audience">
+          <Field label={t('ai.audience')}>
             <input bind:value={audience} class="h-10 w-full px-3 text-sm" maxlength="128" />
           </Field>
           <label class="flex items-center gap-2.5 text-sm text-slate-300 sm:col-span-2">
             <input type="checkbox" bind:checked={presenter} />
-            Show the animated host on screen
+            {t('ai.showHost')}
           </label>
         </div>
       </details>
+
+      {#if presenter}
+        <div class="surface flex items-center gap-3.5 p-3">
+          <AvatarImage src={hostInfo(resolvedHost)?.image} name={hostName || '?'} fit={hostInfo(resolvedHost)?.custom ? 'cover' : 'contain'} class="h-16 w-14 shrink-0 rounded-xl bg-slate-950" />
+          <div class="min-w-0 flex-1">
+            <p class="text-xs font-medium text-slate-400">{t('ai.host')}</p>
+            <p class="truncate text-sm font-semibold text-slate-50">
+              {hostName}
+              {#if avatar === null}<span class="ml-1 text-xs font-normal text-slate-500">· {t('avatars.automatic')}</span>{/if}
+            </p>
+            <p class="text-xs text-slate-500">{avatar === null ? t('avatars.create.hint') : t('avatars.title')}</p>
+          </div>
+          <Button variant="secondary" size="sm" onclick={() => (choosingHost = true)}>{t('avatars.create.change')}</Button>
+        </div>
+      {/if}
     </section>
 
     <div class="lg:hidden"><ErrorBanner {error} /></div>
@@ -300,14 +345,14 @@
           <span
             class="absolute bottom-2 left-2 inline-flex items-center gap-1 rounded-full bg-slate-950/70 px-2 py-0.5 text-[10px] text-slate-300"
           >
-            <Icon name="user" size={10} /> Host
+            <Icon name="user" size={10} /> {t('ai.host')}
           </span>
         {/if}
       </div>
     </div>
 
     <dl class="flex flex-col gap-2.5 text-sm">
-      {#each [['Purpose', current?.label ?? 'Story'], ['Length', prettyDuration], ['Shape', `${aspect} · ${portrait ? 'vertical' : ratio[0] === ratio[1] ? 'square' : 'landscape'}`], ['Language', language === 'km' ? 'ខ្មែរ (Khmer)' : 'English'], ['Host', presenter ? 'Animated host' : 'Voice-over only']] as [label, value] (label)}
+      {#each [[t('ai.purpose'), current ? labelOf(current) : t('ai.story')], [t('ai.length'), prettyDuration], [t('ai.shape'), `${aspect} · ${portrait ? t('ai.shapeVertical') : ratio[0] === ratio[1] ? t('ai.shapeSquare') : t('ai.shapeLandscape')}`], [t('ai.language'), language === 'km' ? t('ai.langKhmer') : t('ai.langEnglish')], [t('ai.host'), presenter ? hostName || t('ai.hostAnimated') : t('ai.hostVoiceOnly')]] as [label, value] (label)}
         <div class="flex items-baseline justify-between gap-4">
           <dt class="text-slate-400">{label}</dt>
           <dd class="text-right font-medium text-slate-100">{value}</dd>
@@ -319,11 +364,26 @@
 
     <div class="flex flex-col gap-2.5">
       <Button type="submit" loading={busy} icon="sparkles" class="h-11 w-full">
-        Generate video
+        {t('ai.generate')}
       </Button>
       <p class="text-center text-xs leading-relaxed text-slate-500">
-        Narration is generated in the background once the script is ready.
+        {t('ai.generateNote')}
       </p>
     </div>
   </aside>
 </form>
+
+{#if choosingHost}
+  <Modal wide title={t('avatars.create.chooseTitle')} onclose={() => (choosingHost = false)}>
+    <div class="max-h-[68vh] overflow-y-auto pr-1">
+    <AvatarPicker
+      allowAuto
+      value={avatar}
+      onselect={(id) => {
+        avatar = id;
+        choosingHost = false;
+      }}
+    />
+    </div>
+  </Modal>
+{/if}

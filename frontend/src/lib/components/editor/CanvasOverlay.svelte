@@ -19,6 +19,7 @@
    */
   import { layerPlacement, layerTextStyle } from '$renderer/layerStyle';
   import { clamp, cssText, round, toRenderLayer } from '$lib/editor/layers';
+  import { t } from '$lib/i18n/index.svelte';
   import type { Layer } from '$lib/types/api';
 
   type Patch = Partial<Pick<Layer, 'x' | 'y' | 'font_size' | 'rotation'>>;
@@ -188,7 +189,7 @@
         <div
           style="{cssText(layerTextStyle(toRenderLayer(layer), compWidth, compHeight, language))}; color:transparent; text-shadow:none; background:transparent; outline:{selected
             ? `${2 / k}px solid #ffa733`
-            : `${1 / k}px dashed rgba(255,255,255,.35)`}; outline-offset:{4 / k}px"
+            : 'none'}; outline-offset:{4 / k}px"
         >
           {layer.text}
         </div>
@@ -198,14 +199,14 @@
             class="absolute cursor-nwse-resize rounded-full border-sun-500 bg-white"
             style="width:{dot}px; height:{dot}px; right:{-dot / 2 - 4 / k}px; bottom:{-dot / 2 -
               4 / k}px; border-width:{2 / k}px"
-            title="Resize"
+            title={t('editor.canvas.resize')}
             onpointerdown={(e) => pressResize(e, source)}
           ></div>
           <!-- svelte-ignore a11y_no_static_element_interactions -->
           <div
             class="absolute cursor-grab rounded-full border-sun-500 bg-white"
             style="width:{dot}px; height:{dot}px; left:calc(50% - {dot / 2}px); top:{-dot * 2.4}px; border-width:{2 / k}px"
-            title="Rotate"
+            title={t('editor.canvas.rotate')}
             onpointerdown={(e) => pressRotate(e, source)}
           ></div>
           <div

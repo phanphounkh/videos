@@ -1,0 +1,38 @@
+/** The sidebar, top bar, search and profile menu. */
+export default {
+  'shell.home': 'ទំព័រដើម',
+  'shell.projects': 'គម្រោង',
+  'shell.templates': 'គំរូ',
+  'shell.trash': 'ធុងសំរាម',
+  'shell.settings': 'ការកំណត់',
+  'shell.create': 'បង្កើត',
+  'shell.createVideo': 'បង្កើតវីដេអូ',
+  'shell.sorya': 'ទំព័រដើម Sorya',
+  'shell.sidebar': 'របារចំហៀង',
+  'shell.nav': 'ម៉ឺនុយមេ',
+  'shell.account': 'គណនី',
+  'shell.openMenu': 'បើកម៉ឺនុយ',
+  'shell.collapse': 'បង្រួមរបារចំហៀង',
+  'shell.expand': 'ពង្រីករបារចំហៀង',
+  'shell.storage': 'ទំហំផ្ទុក',
+  'shell.storageUsed': 'បានប្រើ {used} ក្នុងចំណោម {limit}',
+  'shell.storageBar': 'ទំហំផ្ទុកដែលបានប្រើ',
+
+  'search.placeholder': 'ស្វែងរកគម្រោង និងគំរូ…',
+  'search.label': 'ស្វែងរកគម្រោង និងគំរូ',
+  'search.projects': 'គម្រោង',
+  'search.templates': 'គំរូ',
+  'search.all': 'ស្វែងរកគម្រោងទាំងអស់សម្រាប់ “{q}”',
+
+  'menu.account': 'ម៉ឺនុយគណនី',
+  'menu.plan': 'គម្រោង {plan}',
+  'menu.recent': 'វីដេអូថ្មីៗ',
+  'menu.noVideos': 'មិនទាន់មានវីដេអូនៅឡើយទេ។',
+  'menu.allProjects': 'គម្រោងទាំងអស់ →',
+  'menu.usage': 'ការប្រើប្រាស់',
+  'menu.settings': 'ការកំណត់',
+  'menu.logout': 'ចាកចេញ',
+  'menu.scenes_one': '{n} ឈុត',
+  'menu.scenes_other': '{n} ឈុត',
+  'menu.language': 'ភាសា'
+} as Record<string, string>;

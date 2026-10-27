@@ -18,6 +18,8 @@ from app.core.config import get_settings
 from app.core.database import dispose_engine
 from app.core.exceptions import register_exception_handlers
 from app.core.logging import configure_logging, get_logger
+from app.services.telemetry.middleware import TelemetryMiddleware
+from app.services.telemetry.recorder import get_recorder
 
 log = get_logger(__name__)
 
@@ -31,7 +33,11 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """
     settings = get_settings()
     log.info("app_startup", environment=settings.environment, app=settings.app_name)
+    recorder = get_recorder()
+    recorder.start()
     yield
+    # Last events first, then the pool they are written through.
+    await recorder.stop()
     # Close the database connection pool so the process can exit cleanly.
     await dispose_engine()
     log.info("app_shutdown")
@@ -57,6 +63,10 @@ def create_app() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+
+    # Added last, so it is the OUTERMOST layer: it times the whole request,
+    # including CORS and error handling.
+    app.add_middleware(TelemetryMiddleware)
 
     register_exception_handlers(app)
     app.include_router(api_router, prefix=settings.api_prefix)

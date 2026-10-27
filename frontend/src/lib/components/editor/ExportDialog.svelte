@@ -3,6 +3,7 @@
   import Button from '$lib/components/ui/Button.svelte';
   import ErrorBanner from '$lib/components/ui/ErrorBanner.svelte';
   import StatusBadge from '$lib/components/ui/StatusBadge.svelte';
+  import { t } from '$lib/i18n/index.svelte';
   import type { RenderJob } from '$lib/types/api';
 
   let {
@@ -27,16 +28,15 @@
 <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
   <div class="w-full max-w-md rounded-xl border border-slate-800 bg-slate-900 p-6">
     <div class="mb-4 flex items-center justify-between">
-      <h2 class="text-lg font-semibold">Export video</h2>
+      <h2 class="text-lg font-semibold">{t('editor.export.title')}</h2>
       <button class="text-slate-500 hover:text-slate-300" onclick={onclose}>✕</button>
     </div>
 
     {#if !job}
       <p class="mb-4 text-sm text-slate-400">
-        Rendering runs in a background worker (Remotion + FFmpeg). You can keep editing other
-        projects while it works.
+        {t('editor.export.intro')}
       </p>
-      <Button onclick={onstart} loading={busy}>Start render</Button>
+      <Button onclick={onstart} loading={busy}>{t('editor.export.start')}</Button>
     {:else}
       <div class="mb-3 flex items-center gap-2">
         <StatusBadge status={job.status} />
@@ -54,7 +54,7 @@
 
       {#if running}
         <p class="text-sm text-slate-400">
-          {job.status === 'queued' ? 'Waiting for a worker…' : 'Working…'}
+          {job.status === 'queued' ? t('editor.export.waiting') : t('editor.export.working')}
         </p>
       {/if}
 
@@ -67,17 +67,17 @@
             download
             class="inline-flex items-center justify-center rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-500"
           >
-            Download MP4
+            {t('editor.export.download')}
           </a>
         </div>
       {/if}
 
       {#if job.status === 'failed'}
         <p class="rounded-lg border border-red-900/60 bg-red-950/50 p-3 text-sm text-red-200">
-          {job.error_message ?? 'The render failed.'}
+          {job.error_message ?? t('editor.export.failed')}
         </p>
         <div class="mt-3">
-          <Button onclick={onstart} loading={busy}>Retry render</Button>
+          <Button onclick={onstart} loading={busy}>{t('editor.export.retry')}</Button>
         </div>
       {/if}
     {/if}

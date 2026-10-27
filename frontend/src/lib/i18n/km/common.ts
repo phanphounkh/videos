@@ -1,0 +1,38 @@
+/** Words every page uses. */
+export default {
+  'common.save': 'រក្សាទុក',
+  'common.saved': 'បានរក្សាទុក',
+  'common.cancel': 'បោះបង់',
+  'common.delete': 'លុប',
+  'common.close': 'បិទ',
+  'common.loading': 'កំពុងផ្ទុក…',
+  'common.search': 'ស្វែងរក',
+  'common.seeAll': 'មើលទាំងអស់',
+  'common.viewAll': 'មើលទាំងអស់',
+  'common.back': 'ត្រឡប់ក្រោយ',
+  'common.next': 'បន្ទាប់',
+  'common.rename': 'ប្តូរឈ្មោះ',
+  'common.duplicate': 'ចម្លង',
+  'common.restore': 'ស្តារឡើងវិញ',
+  'common.open': 'បើក',
+  'common.create': 'បង្កើត',
+  'common.clear': 'សម្អាត',
+  'common.dismiss': 'បិទសារ',
+  'common.optional': 'ស្រេចចិត្ត',
+  'common.language': 'ភាសា',
+  'common.name': 'ឈ្មោះ',
+  'common.email': 'អ៊ីមែល',
+  'common.password': 'ពាក្យសម្ងាត់',
+  'common.untitled': 'វីដេអូគ្មានចំណងជើង',
+
+  'time.justNow': 'ម្ដងនេះ',
+  'time.minAgo': '{n} នាទីមុន',
+  'time.hourAgo': '{n} ម៉ោងមុន',
+  'time.dayAgo': '{n} ថ្ងៃមុន',
+  'time.seconds': '{n} វិនាទី',
+  'time.minutes': '{n} នាទី',
+
+  'lang.interface': 'ភាសាចំណុចប្រទាក់',
+  'lang.interfaceHint': 'ភាសានៃម៉ឺនុយ និងប៊ូតុងនានា។',
+  'lang.switch': 'ភាសា'
+} as Record<string, string>;

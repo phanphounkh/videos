@@ -4,6 +4,7 @@
   import Button from '$lib/components/ui/Button.svelte';
   import ErrorBanner from '$lib/components/ui/ErrorBanner.svelte';
   import Field from '$lib/components/ui/Field.svelte';
+  import { t } from '$lib/i18n/index.svelte';
   import { auth, register } from '$lib/stores/auth.svelte';
 
   let email = $state('');
@@ -16,7 +17,7 @@
     error = null;
     try {
       await register(email, password, fullName || undefined);
-      await goto('/projects');
+      await goto('/');
     } catch (e) {
       error = e;
     }
@@ -25,15 +26,17 @@
   const input = 'h-10 w-full px-3 text-sm';
 </script>
 
-<AuthShell title="Create your account" subtitle="Start making videos in minutes.">
+<svelte:head><title>{t('auth.createAccount')} · Sorya</title></svelte:head>
+
+<AuthShell title={t('auth.createTitle')} subtitle={t('auth.createSub')}>
   <form class="flex flex-col gap-4" onsubmit={submit}>
-    <Field label="Name">
+    <Field label={t('common.name')}>
       <input bind:value={fullName} class={input} autocomplete="name" />
     </Field>
-    <Field label="Email">
+    <Field label={t('common.email')}>
       <input bind:value={email} type="email" required autocomplete="email" class={input} />
     </Field>
-    <Field label="Password" hint="At least 8 characters.">
+    <Field label={t('common.password')} hint={t('auth.passwordHint')}>
       <input
         bind:value={password}
         type="password"
@@ -45,11 +48,11 @@
       />
     </Field>
     <ErrorBanner {error} />
-    <Button type="submit" loading={auth.loading} class="mt-1 h-10">Create account</Button>
+    <Button type="submit" loading={auth.loading} class="mt-1 h-10">{t('auth.createAccount')}</Button>
   </form>
 
   {#snippet footer()}
-    Already registered?
-    <a href="/login" class="font-medium text-sun-400 hover:text-sun-300">Log in</a>
+    {t('auth.haveAccount')}
+    <a href="/login" class="font-medium text-sun-400 hover:text-sun-300">{t('auth.login')}</a>
   {/snippet}
 </AuthShell>
